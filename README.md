@@ -2,6 +2,10 @@
 
 A lightweight server for authenticating HDRezka accounts on Smart TV via QR code scanning.
 
+## Preview
+
+![QR Code Example](public/rezka-tv-qr.jpg)
+
 ## How It Works
 
 ```
@@ -109,13 +113,14 @@ npm start
 
 ```
 rezkatv-qr/
-├── index.js           # Express server with session management
+├── index.js            # Express server with session management
 ├── public/
-│   └── auth.html      # Mobile auth page
-├── Dockerfile         # Docker image with Bun
-├── docker-compose.yml # Docker Compose config
-├── package.json       # Project metadata
-└── README.md          # This file
+│   ├── auth.html       # Mobile auth page
+│   └── rezka-tv-qr.jpg # QR code preview image
+├── Dockerfile          # Docker image with Bun
+├── docker-compose.yml  # Docker Compose config
+├── package.json        # Project metadata
+└── README.md           # This file
 ```
 
 ## Integration with Smart TV App
