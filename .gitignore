@@ -139,4 +139,6 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
 # Certbot certificates (persisted locally but not in git)
-certbot/
+certbot/www/
+certbot/conf/
+!certbot/entrypoint.sh

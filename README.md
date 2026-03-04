@@ -65,23 +65,25 @@ npm start
 cp .env-example .env
 
 # Edit .env with your domain and email
+# Set STAGING=1 for test certificate (default)
+# Set STAGING=0 for production certificate
 vim .env
 
-# Start services (nginx creates dummy cert automatically)
-docker-compose up -d
-
-# Obtain real SSL certificate
-docker-compose run --rm certbot certonly \
-  --webroot -w /var/www/certbot \
-  -d $DOMAIN \
-  --email $CERTBOT_EMAIL \
-  --agree-tos --no-eff-email
-
-# Reload nginx to apply real certificate
-docker-compose exec nginx nginx -s reload
+# Start all services
+docker compose up -d
 ```
 
-> **Note:** On first start, nginx creates a self-signed dummy certificate so it can start without a real SSL cert. After obtaining the real certificate from Let's Encrypt, nginx reloads and uses the real one.
+That's it! The certbot container will automatically:
+1. Wait for nginx to start
+2. Check if a certificate exists
+3. Request a new certificate if needed (staging or production based on `STAGING` env)
+4. Start the renewal loop (every 12 hours)
+
+> **Note:** 
+> - `STAGING=1` creates test certificates (no rate limits)
+> - `STAGING=0` creates real certificates (5 certs/week per domain limit)
+> - Nginx creates a dummy certificate on startup so it can start without errors
+> - After obtaining the real certificate, reload nginx: `docker compose exec nginx nginx -s reload`
 
 ## API Endpoints
 
@@ -123,12 +125,13 @@ docker-compose exec nginx nginx -s reload
 
 ## Environment Variables
 
-| Variable       | Default      | Description                      |
-| -------------- | ------------ | -------------------------------- |
-| `PORT`         | `3000`       | Server port (internal)           |
-| `HDREZKA_HOST` | `hdrezka.ag` | Default HDRezka host for login   |
-| `DOMAIN`       | —            | Your domain for SSL certificate  |
-| `CERTBOT_EMAIL`| —            | Email for Let's Encrypt notifications |
+| Variable       | Default      | Description                                |
+| -------------- | ------------ | ------------------------------------------ |
+| `PORT`         | `3000`       | Server port (internal)                     |
+| `HDREZKA_HOST` | `hdrezka.ag` | Default HDRezka host for login             |
+| `DOMAIN`       | —            | Your domain for SSL certificate            |
+| `CERTBOT_EMAIL`| —            | Email for Let's Encrypt notifications      |
+| `STAGING`      | `1`          | Use Let's Encrypt staging (1=test, 0=prod) |
 
 ## Project Structure
 
@@ -142,9 +145,10 @@ rezkatv-qr/
 │   ├── Dockerfile           # Nginx with openssl for dummy certs
 │   ├── default.conf.template# Nginx config template
 │   └── init-cert.sh         # Script to create dummy cert on first run
-├── certbot/                 # SSL certificates (gitignored)
-│   ├── www/                 # ACME challenge files
-│   └── conf/                # Let's Encrypt certificates
+├── certbot/
+│   ├── entrypoint.sh        # Certbot auto-init & renewal script
+│   ├── www/                 # ACME challenge files (auto-created)
+│   └── conf/                # Let's Encrypt certificates (auto-created)
 ├── Dockerfile               # Docker image with Bun
 ├── docker-compose.yml       # Docker Compose (app + nginx + certbot)
 ├── .env-example             # Environment variables template

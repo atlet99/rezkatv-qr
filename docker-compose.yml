@@ -28,15 +28,15 @@ services:
   certbot:
     image: certbot/certbot
     container_name: qr-auth-certbot
+    restart: always
     volumes:
       - ./certbot/www:/var/www/certbot
       - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/entrypoint.sh:/entrypoint.sh:ro
     environment:
       - DOMAIN=${DOMAIN}
       - CERTBOT_EMAIL=${CERTBOT_EMAIL}
-    entrypoint: >
-      sh -c "trap exit TERM;
-             while :; do
-               certbot renew --webroot -w /var/www/certbot --quiet;
-               sleep 12h & wait $${!};
-             done"
+      - STAGING=${STAGING:-0}
+    entrypoint: sh /entrypoint.sh
+    depends_on:
+      - nginx
