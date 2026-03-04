@@ -15,9 +15,9 @@ A lightweight server for authenticating HDRezka accounts on Smart TV via QR code
       │ 3. Display QR code with token
       ▼
 ┌─────────────┐     4. Open auth page       ┌─────────────┐
-│             │ ─────────────────────────► │             │
-│  Smartphone │     5. Submit credentials  │   Server    │
-│             │ ◄───────────────────────── │             │
+│             │ ─────────────────────────►  │             │
+│  Smartphone │     5. Submit credentials   │   Server    │
+│             │ ◄─────────────────────────  │             │
 └─────────────┘     6. Login to HDRezka     └─────────────┘
                                                         │
       ┌─────────────────────────────────────────────────┘
