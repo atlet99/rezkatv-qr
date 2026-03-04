@@ -10,7 +10,7 @@ services:
       - "3000"
 
   nginx:
-    build: ./nginx
+    image: nginx:alpine
     container_name: qr-auth-nginx
     restart: always
     ports:
@@ -24,17 +24,3 @@ services:
       - DOMAIN=${DOMAIN}
     depends_on:
       - app
-
-  certbot:
-    build: ./certbot
-    container_name: qr-auth-certbot
-    restart: always
-    volumes:
-      - ./certbot/www:/var/www/certbot
-      - ./certbot/conf:/etc/letsencrypt
-    environment:
-      - DOMAIN=${DOMAIN}
-      - CERTBOT_EMAIL=${CERTBOT_EMAIL}
-      - STAGING=${STAGING:-0}
-    depends_on:
-      - nginx
