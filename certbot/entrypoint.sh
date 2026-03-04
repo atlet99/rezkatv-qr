@@ -43,5 +43,6 @@ echo "Starting certificate renewal loop..."
 trap exit TERM
 while :; do
   certbot renew --webroot -w /var/www/certbot --quiet
-  sleep 12h & wait $${!}
+  sleep 12h &
+  wait $!
 done
