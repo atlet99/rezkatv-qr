@@ -80,10 +80,10 @@ That's it! The certbot container will automatically:
 4. Start the renewal loop (every 12 hours)
 
 > **Note:** 
-> - `STAGING=1` creates test certificates (no rate limits)
+> - `STAGING=1` creates test certificates using `--test-cert` flag (no rate limits)
 > - `STAGING=0` creates real certificates (5 certs/week per domain limit)
 > - Nginx creates a dummy certificate on startup so it can start without errors
-> - After obtaining the real certificate, reload nginx: `docker compose exec nginx nginx -s reload`
+> - After obtaining the certificate, reload nginx: `docker compose exec nginx nginx -s reload`
 
 ## API Endpoints
 

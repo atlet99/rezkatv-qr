@@ -15,10 +15,10 @@ if [ -d "$CERT_DIR" ]; then
 else
   echo "No certificate found. Requesting new one..."
   
-  STAGING_FLAG=""
+  TEST_CERT_FLAG=""
   if [ "$STAGING" = "1" ]; then
-    STAGING_FLAG="--staging"
-    echo "Using STAGING environment (test certificate)"
+    TEST_CERT_FLAG="--test-cert"
+    echo "Using test certificate (staging)"
   fi
   
   if [ -z "$CERTBOT_EMAIL" ]; then
@@ -26,16 +26,19 @@ else
     exit 1
   fi
   
-  certbot certonly \
+  if certbot certonly \
     --webroot \
     --webroot-path /var/www/certbot \
     -d $DOMAIN \
-    --email $CERTBOT_EMAIL \
+    -m $CERTBOT_EMAIL \
     --agree-tos \
-    --no-eff-email \
-    $STAGING_FLAG
-  
-  echo "Certificate obtained!"
+    -n \
+    $TEST_CERT_FLAG; then
+    echo "Certificate obtained! Reload nginx: docker compose exec nginx nginx -s reload"
+  else
+    echo "Failed to obtain certificate"
+    exit 1
+  fi
 fi
 
 # Start renewal loop
