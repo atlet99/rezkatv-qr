@@ -67,21 +67,21 @@ cp .env-example .env
 # Edit .env with your domain and email
 vim .env
 
-# Start services
+# Start services (nginx creates dummy cert automatically)
 docker-compose up -d
 
-# Obtain SSL certificate (first time only)
+# Obtain real SSL certificate
 docker-compose run --rm certbot certonly \
   --webroot -w /var/www/certbot \
   -d $DOMAIN \
   --email $CERTBOT_EMAIL \
   --agree-tos --no-eff-email
 
-# Restart nginx to apply SSL
-docker-compose restart nginx
+# Reload nginx to apply real certificate
+docker-compose exec nginx nginx -s reload
 ```
 
-Server will be available at `https://your-domain.com`
+> **Note:** On first start, nginx creates a self-signed dummy certificate so it can start without a real SSL cert. After obtaining the real certificate from Let's Encrypt, nginx reloads and uses the real one.
 
 ## API Endpoints
 
@@ -139,7 +139,9 @@ rezkatv-qr/
 │   ├── auth.html            # Mobile auth page
 │   └── rezka-tv-qr.jpg      # QR code preview image
 ├── nginx/
-│   └── default.conf.template# Nginx config template
+│   ├── Dockerfile           # Nginx with openssl for dummy certs
+│   ├── default.conf.template# Nginx config template
+│   └── init-cert.sh         # Script to create dummy cert on first run
 ├── certbot/                 # SSL certificates (gitignored)
 │   ├── www/                 # ACME challenge files
 │   └── conf/                # Let's Encrypt certificates

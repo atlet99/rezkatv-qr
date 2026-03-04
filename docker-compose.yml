@@ -10,7 +10,7 @@ services:
       - "3000"
 
   nginx:
-    image: nginx:alpine
+    build: ./nginx
     container_name: qr-auth-nginx
     restart: always
     ports:
