@@ -26,17 +26,16 @@ services:
       - app
 
   certbot:
-    image: certbot/certbot
+    build: ./certbot
     container_name: qr-auth-certbot
     restart: always
     volumes:
       - ./certbot/www:/var/www/certbot
       - ./certbot/conf:/etc/letsencrypt
-      - ./certbot/entrypoint.sh:/entrypoint.sh:ro
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - DOMAIN=${DOMAIN}
       - CERTBOT_EMAIL=${CERTBOT_EMAIL}
       - STAGING=${STAGING:-0}
-    entrypoint: sh /entrypoint.sh
     depends_on:
       - nginx
