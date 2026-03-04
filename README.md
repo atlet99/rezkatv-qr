@@ -140,6 +140,9 @@ rezkatv-qr/
 │   └── rezka-tv-qr.jpg      # QR code preview image
 ├── nginx/
 │   └── default.conf.template# Nginx config template
+├── certbot/                 # SSL certificates (gitignored)
+│   ├── www/                 # ACME challenge files
+│   └── conf/                # Let's Encrypt certificates
 ├── Dockerfile               # Docker image with Bun
 ├── docker-compose.yml       # Docker Compose (app + nginx + certbot)
 ├── .env-example             # Environment variables template
