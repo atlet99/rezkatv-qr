@@ -10,7 +10,7 @@ services:
       - "3000"
 
   nginx:
-    image: nginx:alpine
+    image: nginx:1.28-alpine3.23
     container_name: qr-auth-nginx
     restart: always
     entrypoint: ["/custom-entrypoint.sh"]
