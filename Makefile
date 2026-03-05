@@ -7,7 +7,7 @@ CERTBOT_VOLUMES = -v ./certbot/www:/var/www/certbot -v ./certbot/conf:/etc/letse
 .PHONY: help up down restart logs cert-test cert-test-dry cert-prod cert-prod-dry cert-renew cert-cron cert-clean
 
 help: ## Show available commands
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(firstword $(MAKEFILE_LIST)) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
 up: ## Start all services
 	docker compose up -d --build
