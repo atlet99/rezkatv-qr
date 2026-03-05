@@ -11,6 +11,21 @@ const PORT = process.env.PORT || 3000;
 
 app.set('trust proxy', 1); // Trust first proxy (nginx)
 
+// Utility to mask login/email (e.g. user@email.com -> us***@e***.com, login -> lo***)
+function maskLogin(login) {
+  if (!login || typeof login !== 'string') return '***';
+  if (login.includes('@')) {
+    const [name, domain] = login.split('@');
+    const maskedName = name.length > 2 ? name.slice(0, 2) + '*'.repeat(name.length - 2) : name + '*';
+    const domainParts = domain.split('.');
+    const ext = domainParts.length > 1 ? '.' + domainParts.pop() : '';
+    const dName = domainParts.join('.');
+    const maskedDomain = dName.length > 1 ? dName[0] + '*'.repeat(dName.length - 1) : dName + '*';
+    return `${maskedName}@${maskedDomain}${ext}`;
+  }
+  return login.length > 2 ? login.slice(0, 2) + '*'.repeat(login.length - 2) : login + '*';
+}
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -33,7 +48,10 @@ const TOKEN_TTL = 5 * 60 * 1000;
 setInterval(() => {
   const now = Date.now();
   for (const token in sessions) {
-    if (now - sessions[token].createdAt > TOKEN_TTL) delete sessions[token];
+    if (now - sessions[token].createdAt > TOKEN_TTL) {
+      console.log(`[Session] Timeout for token: ${token.slice(0, 8)}...`);
+      delete sessions[token];
+    }
   }
 }, 60_000);
 
@@ -45,6 +63,7 @@ app.post('/session/create', createSessionLimiter, (req, res) => {
   const token = crypto.randomBytes(16).toString('hex');
   const host  = req.body.host || process.env.HDREZKA_HOST || 'hdrezka.ag';
   sessions[token] = { status: 'pending', host, createdAt: Date.now() };
+  console.log(`[Session] Created token: ${token.slice(0, 8)}... for host: ${host}`);
   res.json({ token });
 });
 
@@ -54,6 +73,7 @@ app.get('/session/check', (req, res) => {
   if (session.status === 'done') {
     const { cookies } = session;
     delete sessions[req.query.t];
+    console.log(`[Session] Handed over cookies for token: ${req.query.t.slice(0, 8)}...`);
     return res.json({ status: 'done', cookies });
   }
   if (session.status === 'error') return res.json({ status: 'error', error: session.error });
@@ -70,11 +90,14 @@ app.post('/session/submit', submitAuthLimiter, async (req, res) => {
     return res.status(400).json({ success: false, error: 'QR-код истёк, обновите его на телевизоре' });
 
   try {
+    console.log(`[Auth] Attempting login for ${maskLogin(login)} on ${session.host} (token: ${token.slice(0, 8)}...)`);
     const cookies = await loginToHDRezka(session.host, login, password);
     sessions[token] = { ...session, status: 'done', cookies };
+    console.log(`[Auth] Success for ${maskLogin(login)} (token: ${token.slice(0, 8)}...)`);
     res.json({ success: true });
   } catch (err) {
     sessions[token] = { ...session, status: 'error', error: err.message };
+    console.error(`[Auth] Error for ${maskLogin(login)}: ${err.message} (token: ${token.slice(0, 8)}...)`);
     res.json({ success: false, error: err.message });
   }
 });

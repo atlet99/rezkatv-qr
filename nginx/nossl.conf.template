@@ -20,7 +20,13 @@ server {
         root /var/www/certbot;
     }
 
+    # Default catch-all: drop connections from scanners/bots
     location / {
+        return 444;
+    }
+
+    # Whitelist of allowed application routes
+    location ~ ^/(auth.*|session/.*|rezka-tv-qr\.jpg)$ {
         proxy_pass         http://app:3000;
         proxy_http_version 1.1;
         proxy_set_header   Host $host;
@@ -29,14 +35,3 @@ server {
         proxy_set_header   X-Forwarded-Proto $scheme;
     }
 
-    location /session/ {
-        limit_req zone=api burst=20 nodelay;
-
-        proxy_pass         http://app:3000;
-        proxy_http_version 1.1;
-        proxy_set_header   Host $host;
-        proxy_set_header   X-Real-IP $remote_addr;
-        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto $scheme;
-    }
-}
