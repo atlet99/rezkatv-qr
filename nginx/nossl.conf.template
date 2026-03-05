@@ -13,6 +13,24 @@ server {
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
 
+    # --- HTTP Method Restrictions ---
+    if ($request_method !~ ^(GET|POST)$ ) {
+        return 405;
+    }
+
+    # --- Strict POST payload validation ---
+    set $post_valid 1;
+    if ($request_method = POST) {
+        set $post_valid 0;
+    }
+    if ($content_type ~* "^application/json") {
+        set $post_valid "${post_valid}1";
+    }
+    # If method is POST and Content-Type is NOT json, $post_valid equals "0"
+    if ($post_valid = 0) {
+        return 415;
+    }
+
     # --- Request limits ---
     client_max_body_size 1m;
 
