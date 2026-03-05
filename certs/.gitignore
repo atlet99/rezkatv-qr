@@ -1,0 +1,9 @@
+# Ignore decrypted certificates
+crt.pem
+crt.key
+origin.pem
+origin.key
+
+# Allow encrypted certificates
+!enc.*.pem
+!enc.*.key
