@@ -40,7 +40,7 @@ A lightweight server for authenticating HDRezka accounts on Smart TV via QR code
 - Automatic cleanup of expired sessions
 - Mobile-friendly auth page
 - Docker support with Bun runtime
-- Nginx reverse proxy with HTTPS (Let's Encrypt)
+- Protected Nginx reverse proxy (designed for CloudFlare Flexible SSL)
 
 ## Quick Start
 
@@ -64,23 +64,16 @@ npm start
 
 ```bash
 cp .env-example .env
-vim .env  # Set DOMAIN and CERTBOT_EMAIL
+vim .env  # Set DOMAIN
 ```
 
-#### Step 2: Start services & obtain SSL
+#### Step 2: Start services
 
 ```bash
-# Start services (nginx auto-detects SSL certificate)
-make up
-
-# Get staging certificate first (no rate limits)
-make cert-test
-
-# When ready, get production certificate
-make cert-prod
+make deploy
 ```
 
-Server will be available at `https://your-domain.com`
+Server will be available at `http://your-domain.com` (or `https://` if proxied via CloudFlare).
 
 #### Available Make Commands
 
@@ -89,25 +82,10 @@ Server will be available at `https://your-domain.com`
 | `make help`      | Show all available commands                |
 | `make up`        | Start all services                         |
 | `make down`      | Stop all services                          |
-| `make restart`   | Restart nginx (after cert changes)         |
+| `make restart`   | Restart nginx                              |
+| `make restart-app`| Rebuild and restart the Node.js API       |
 | `make logs`      | Show nginx logs                            |
-| `make cert-test` | Obtain staging SSL certificate             |
-| `make cert-prod` | Obtain production SSL certificate          |
-| `make cert-renew`| Renew existing certificates                |
-| `make cert-cron` | Install daily renewal cron job (3:00 AM)   |
-| `make deploy`    | Full deploy: start + production cert       |
-
-### Certificate Renewal
-
-Certificates are valid for 90 days. Renew manually or set up auto-renewal:
-
-```bash
-# Manual renewal
-make cert-renew
-
-# Install auto-renewal cron job
-make cert-cron
-```
+| `make deploy`    | Full deploy: start services                |
 
 ## API Endpoints
 
@@ -153,8 +131,7 @@ make cert-cron
 | -------------- | ------------ | ------------------------------------ |
 | `PORT`         | `3000`       | Server port (internal)               |
 | `HDREZKA_HOST` | `hdrezka.ag` | Default HDRezka host for login       |
-| `DOMAIN`       | —            | Your domain for SSL certificate      |
-| `CERTBOT_EMAIL`| —            | Email for Let's Encrypt registration |
+| `DOMAIN`       | —            | Your domain for nginx routing        |
 
 ## Project Structure
 
@@ -163,14 +140,9 @@ rezkatv-qr/
 ├── index.js                 # Express server with session management
 ├── public/
 │   ├── auth.html            # Mobile auth page
-│   └── rezka-tv-qr.jpg      # QR code preview image
+│   └── rezka-tv-qr.jpg      # Preview image
 ├── nginx/
-│   ├── docker-entrypoint.sh # Auto-detect SSL entrypoint
-│   ├── ssl.conf.template    # Nginx config with HTTPS
-│   └── nossl.conf.template  # Nginx config HTTP-only
-├── certbot/
-│   ├── www/                 # ACME challenge files (auto-created)
-│   └── conf/                # Let's Encrypt certificates (auto-created)
+│   └── default.conf.template # Nginx reverse proxy configuration
 ├── Makefile                 # Deploy automation commands
 ├── Dockerfile               # Docker image with Bun
 ├── docker-compose.yml       # Docker Compose (app + nginx)

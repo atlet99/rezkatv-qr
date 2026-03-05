@@ -13,17 +13,10 @@ services:
     image: nginx:1.28-alpine3.23
     container_name: qr-auth-nginx
     restart: always
-    entrypoint: ["/custom-entrypoint.sh"]
-    command: ["nginx", "-g", "daemon off;"]
     ports:
       - "80:80"
-      - "443:443"
     volumes:
-      - ./nginx/docker-entrypoint.sh:/custom-entrypoint.sh:ro
-      - ./nginx/ssl.conf.template:/etc/nginx/templates-source/ssl.conf.template:ro
-      - ./nginx/nossl.conf.template:/etc/nginx/templates-source/nossl.conf.template:ro
-      - ./certbot/www:/var/www/certbot
-      - ./certbot/conf:/etc/letsencrypt
+      - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
     environment:
       - DOMAIN=${DOMAIN}
     depends_on:
