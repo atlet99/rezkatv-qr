@@ -81,10 +81,10 @@ docker compose up -d
 
 ```bash
 # Test certificate (staging, no rate limits)
-docker run --rm -v ./certbot/www:/var/www/certbot -v ./certbot/conf:/etc/letsencrypt certbot/certbot certonly --webroot -w /var/www/certbot -d $DOMAIN -m $CERTBOT_EMAIL --agree-tos -n --test-cert
+docker run --rm -v ./certbot/www:/var/www/certbot -v ./certbot/conf:/etc/letsencrypt certbot/certbot:v5.3.1 certonly --webroot -w /var/www/certbot -d $DOMAIN -m $CERTBOT_EMAIL --agree-tos -n --test-cert
 
 # Production certificate (remove --test-cert)
-docker run --rm -v ./certbot/www:/var/www/certbot -v ./certbot/conf:/etc/letsencrypt certbot/certbot certonly --webroot -w /var/www/certbot -d $DOMAIN -m $CERTBOT_EMAIL --agree-tos -n
+docker run --rm -v ./certbot/www:/var/www/certbot -v ./certbot/conf:/etc/letsencrypt certbot/certbot:v5.3.1 certonly --webroot -w /var/www/certbot -d $DOMAIN -m $CERTBOT_EMAIL --agree-tos -n
 ```
 
 #### Step 4: Restart nginx to apply certificate
@@ -100,7 +100,7 @@ Server will be available at `https://your-domain.com`
 Certificates are valid for 90 days. Renew with:
 
 ```bash
-docker run --rm -v ./certbot/www:/var/www/certbot -v ./certbot/conf:/etc/letsencrypt certbot/certbot renew --webroot -w /var/www/certbot
+docker run --rm -v ./certbot/www:/var/www/certbot -v ./certbot/conf:/etc/letsencrypt certbot/certbot:v5.3.1 renew --webroot -w /var/www/certbot
 docker compose restart nginx
 ```
 
@@ -111,7 +111,7 @@ Or set up a cron job:
 crontab -e
 
 # Add daily renewal check at 3:00 AM
-0 3 * * * cd /path/to/rezkatv-qr && docker run --rm -v ./certbot/www:/var/www/certbot -v ./certbot/conf:/etc/letsencrypt certbot/certbot renew --webroot -w /var/www/certbot --quiet && docker compose restart nginx
+0 3 * * * cd /path/to/rezkatv-qr && docker run --rm -v ./certbot/www:/var/www/certbot -v ./certbot/conf:/etc/letsencrypt certbot/certbot:v5.3.1 renew --webroot -w /var/www/certbot --quiet && docker compose restart nginx
 ```
 
 ## API Endpoints

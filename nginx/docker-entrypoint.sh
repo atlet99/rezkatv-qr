@@ -3,6 +3,8 @@ set -e
 
 CERT_PATH="/etc/letsencrypt/live/${DOMAIN}/fullchain.pem"
 
+mkdir -p /etc/nginx/templates
+
 if [ -f "$CERT_PATH" ]; then
     echo "SSL certificate found, enabling HTTPS configuration"
     cp /etc/nginx/templates-source/ssl.conf.template /etc/nginx/templates/default.conf.template
