@@ -4,7 +4,7 @@ export
 CERTBOT_IMAGE = certbot/certbot:v5.3.1
 CERTBOT_VOLUMES = -v ./certbot/www:/var/www/certbot -v ./certbot/conf:/etc/letsencrypt
 
-.PHONY: help up down restart logs cert-test cert-test-dry cert-prod cert-prod-dry cert-renew cert-cron cert-clean
+.PHONY: help up down restart restart-app logs cert-test cert-test-dry cert-prod cert-prod-dry cert-renew cert-cron cert-clean
 
 help: ## Show available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(firstword $(MAKEFILE_LIST)) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -17,6 +17,9 @@ down: ## Stop all services
 
 restart: ## Restart nginx (e.g. after obtaining certificate)
 	docker compose restart nginx
+
+restart-app: ## Rebuild and restart the Node.js API (app)
+	docker compose up -d --build app
 
 logs: ## Show nginx logs
 	docker logs -f qr-auth-nginx
