@@ -67,10 +67,13 @@ cp .env-example .env
 vim .env
 ```
 
-#### Step 2: Start nginx on port 80 (for certbot)
+#### Step 2: Start services
+
+Nginx automatically detects whether an SSL certificate exists:
+- **No certificate** → starts in HTTP-only mode (port 80) for certbot validation
+- **Certificate exists** → starts with HTTPS (ports 80 + 443)
 
 ```bash
-# Start only app and nginx
 docker compose up -d
 ```
 
@@ -166,7 +169,9 @@ rezkatv-qr/
 │   ├── auth.html            # Mobile auth page
 │   └── rezka-tv-qr.jpg      # QR code preview image
 ├── nginx/
-│   └── default.conf.template# Nginx config template
+│   ├── docker-entrypoint.sh # Auto-detect SSL entrypoint
+│   ├── ssl.conf.template    # Nginx config with HTTPS
+│   └── nossl.conf.template  # Nginx config HTTP-only
 ├── certbot/
 │   ├── www/                 # ACME challenge files (auto-created)
 │   └── conf/                # Let's Encrypt certificates (auto-created)
