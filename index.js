@@ -1,6 +1,7 @@
 'use strict';
 
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const https   = require('https');
 const path    = require('path');
 const crypto  = require('crypto');
@@ -8,8 +9,23 @@ const crypto  = require('crypto');
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
+app.set('trust proxy', 1); // Trust first proxy (nginx)
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Rate limits
+const createSessionLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 5, // Limit each IP to 5 requests per windowMs
+  message: { error: 'Слишком много попыток создания сессии. Попробуйте позже.' }
+});
+
+const submitAuthLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10, // Max 10 attempts to prevent bruteforce
+  message: { success: false, error: 'Слишком много попыток входа. Попробуйте позже.' }
+});
 
 const sessions = {};
 const TOKEN_TTL = 5 * 60 * 1000;
@@ -21,7 +37,11 @@ setInterval(() => {
   }
 }, 60_000);
 
-app.post('/session/create', (req, res) => {
+app.post('/session/create', createSessionLimiter, (req, res) => {
+  if (Object.keys(sessions).length >= 100) {
+    return res.status(429).json({ error: 'Сервер временно перегружен сессиями. Попробуйте позже.' });
+  }
+
   const token = crypto.randomBytes(16).toString('hex');
   const host  = req.body.host || process.env.HDREZKA_HOST || 'hdrezka.ag';
   sessions[token] = { status: 'pending', host, createdAt: Date.now() };
@@ -40,7 +60,7 @@ app.get('/session/check', (req, res) => {
   res.json({ status: 'pending' });
 });
 
-app.post('/session/submit', async (req, res) => {
+app.post('/session/submit', submitAuthLimiter, async (req, res) => {
   const { token, login, password } = req.body;
   if (!token || !login || !password)
     return res.status(400).json({ success: false, error: 'Не все поля заполнены' });
@@ -73,6 +93,7 @@ function loginToHDRezka(host, login, password) {
       method:   'GET',
       headers:  { 'User-Agent': 'Mozilla/5.0 (SmartTV; WebOS)' },
       rejectUnauthorized: false,
+      timeout: 10000,
     }, (getRes) => {
       const sessionCookies = (getRes.headers['set-cookie'] || [])
         .map(c => c.split(';')[0]).join('; ');
@@ -103,6 +124,7 @@ function loginToHDRezka(host, login, password) {
             'X-Requested-With': 'XMLHttpRequest',
           },
           rejectUnauthorized: false,
+          timeout: 10000,
         }, (postRes) => {
           let respBody = '';
           postRes.on('data', chunk => respBody += chunk);
@@ -123,12 +145,20 @@ function loginToHDRezka(host, login, password) {
         });
 
         postReq.on('error', err => reject(err));
+        postReq.on('timeout', () => {
+          postReq.destroy();
+          reject(new Error('Время ожидания ответа от HDRezka (POST) истекло'));
+        });
         postReq.write(postData);
         postReq.end();
       });
     });
 
     getReq.on('error', err => reject(err));
+    getReq.on('timeout', () => {
+      getReq.destroy();
+      reject(new Error('Время ожидания ответа от HDRezka (GET) истекло'));
+    });
     getReq.end();
   });
 }
