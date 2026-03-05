@@ -64,54 +64,49 @@ npm start
 
 ```bash
 cp .env-example .env
-vim .env
+vim .env  # Set DOMAIN and CERTBOT_EMAIL
 ```
 
-#### Step 2: Start services
-
-Nginx automatically detects whether an SSL certificate exists:
-- **No certificate** → starts in HTTP-only mode (port 80) for certbot validation
-- **Certificate exists** → starts with HTTPS (ports 80 + 443)
+#### Step 2: Start services & obtain SSL
 
 ```bash
-docker compose up -d
-```
+# Start services (nginx auto-detects SSL certificate)
+make up
 
-#### Step 3: Obtain SSL certificate
+# Get staging certificate first (no rate limits)
+make cert-test
 
-```bash
-# Test certificate (staging, no rate limits)
-docker run --rm -v ./certbot/www:/var/www/certbot -v ./certbot/conf:/etc/letsencrypt certbot/certbot:v5.3.1 certonly --webroot -w /var/www/certbot -d $DOMAIN -m $CERTBOT_EMAIL --agree-tos -n --test-cert
-
-# Production certificate (remove --test-cert)
-docker run --rm -v ./certbot/www:/var/www/certbot -v ./certbot/conf:/etc/letsencrypt certbot/certbot:v5.3.1 certonly --webroot -w /var/www/certbot -d $DOMAIN -m $CERTBOT_EMAIL --agree-tos -n
-```
-
-#### Step 4: Restart nginx to apply certificate
-
-```bash
-docker compose restart nginx
+# When ready, get production certificate
+make cert-prod
 ```
 
 Server will be available at `https://your-domain.com`
 
+#### Available Make Commands
+
+| Command          | Description                                |
+| ---------------- | ------------------------------------------ |
+| `make help`      | Show all available commands                |
+| `make up`        | Start all services                         |
+| `make down`      | Stop all services                          |
+| `make restart`   | Restart nginx (after cert changes)         |
+| `make logs`      | Show nginx logs                            |
+| `make cert-test` | Obtain staging SSL certificate             |
+| `make cert-prod` | Obtain production SSL certificate          |
+| `make cert-renew`| Renew existing certificates                |
+| `make cert-cron` | Install daily renewal cron job (3:00 AM)   |
+| `make deploy`    | Full deploy: start + production cert       |
+
 ### Certificate Renewal
 
-Certificates are valid for 90 days. Renew with:
+Certificates are valid for 90 days. Renew manually or set up auto-renewal:
 
 ```bash
-docker run --rm -v ./certbot/www:/var/www/certbot -v ./certbot/conf:/etc/letsencrypt certbot/certbot:v5.3.1 renew --webroot -w /var/www/certbot
-docker compose restart nginx
-```
+# Manual renewal
+make cert-renew
 
-Or set up a cron job:
-
-```bash
-# Edit crontab
-crontab -e
-
-# Add daily renewal check at 3:00 AM
-0 3 * * * cd /path/to/rezkatv-qr && docker run --rm -v ./certbot/www:/var/www/certbot -v ./certbot/conf:/etc/letsencrypt certbot/certbot:v5.3.1 renew --webroot -w /var/www/certbot --quiet && docker compose restart nginx
+# Install auto-renewal cron job
+make cert-cron
 ```
 
 ## API Endpoints
@@ -159,6 +154,7 @@ crontab -e
 | `PORT`         | `3000`       | Server port (internal)               |
 | `HDREZKA_HOST` | `hdrezka.ag` | Default HDRezka host for login       |
 | `DOMAIN`       | —            | Your domain for SSL certificate      |
+| `CERTBOT_EMAIL`| —            | Email for Let's Encrypt registration |
 
 ## Project Structure
 
@@ -175,6 +171,7 @@ rezkatv-qr/
 ├── certbot/
 │   ├── www/                 # ACME challenge files (auto-created)
 │   └── conf/                # Let's Encrypt certificates (auto-created)
+├── Makefile                 # Deploy automation commands
 ├── Dockerfile               # Docker image with Bun
 ├── docker-compose.yml       # Docker Compose (app + nginx)
 ├── .env-example             # Environment variables template
