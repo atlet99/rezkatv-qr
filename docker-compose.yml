@@ -8,6 +8,8 @@ services:
       - HDREZKA_HOST=hdrezka.ag
     expose:
       - "3000"
+    networks:
+      - internal
 
   nginx:
     image: nginx:1.28-alpine3.23
@@ -19,7 +21,14 @@ services:
     volumes:
       - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
       - ./certs:/etc/nginx/certs:ro
+      - /var/log/nginx:/var/log/nginx
     environment:
       - DOMAIN=${DOMAIN}
     depends_on:
       - app
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
