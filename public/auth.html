@@ -1,257 +1,383 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ru">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>RezkaTV — Вход</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
-      background: #141420;
-      color: #fff;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
-    }
-
-    .card {
-      background: #1c1c2e;
-      border: 1px solid #2a2a3e;
-      border-radius: 12px;
-      padding: 40px 36px;
-      width: 100%;
-      max-width: 400px;
-    }
-
-    /* Логотип */
-    .logo {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 28px;
-    }
-    .logo-icon {
-      width: 36px; height: 36px;
-      background: #8b1a1a;
-      border-radius: 8px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 18px;
-    }
-    .logo-text {
-      font-size: 18px;
-      font-weight: 700;
-      letter-spacing: .03em;
-      color: #fff;
-    }
-    .logo-text span { color: #c0392b; }
-
-    /* Заголовок */
-    h1 {
-      font-size: 20px;
-      font-weight: 700;
-      color: #fff;
-      margin-bottom: 6px;
-    }
-    .subtitle {
-      font-size: 13px;
-      color: #6b6b8a;
-      margin-bottom: 28px;
-    }
-
-    /* Поля */
-    .field { margin-bottom: 14px; }
-    label {
-      display: block;
-      font-size: 12px;
-      font-weight: 600;
-      color: #6b6b8a;
-      text-transform: uppercase;
-      letter-spacing: .06em;
-      margin-bottom: 7px;
-    }
-    input {
-      width: 100%;
-      padding: 13px 16px;
-      background: #12121e;
-      border: 1px solid #2a2a3e;
-      border-radius: 8px;
-      color: #fff;
-      font-size: 15px;
-      outline: none;
-      transition: border-color .2s;
-      -webkit-appearance: none;
-    }
-    input::placeholder { color: #3a3a5a; }
-    input:focus { border-color: #8b1a1a; }
-
-    /* Кнопка */
-    .btn {
-      width: 100%;
-      padding: 14px;
-      margin-top: 8px;
-      background: transparent;
-      border: 2px solid #fff;
-      border-radius: 8px;
-      color: #fff;
-      font-size: 14px;
-      font-weight: 700;
-      letter-spacing: .08em;
-      text-transform: uppercase;
-      cursor: pointer;
-      transition: background .2s, color .2s;
-    }
-    .btn:hover   { background: #fff; color: #141420; }
-    .btn:active  { opacity: .85; }
-    .btn:disabled { opacity: .4; pointer-events: none; }
-
-    /* Статус */
-    .status {
-      margin-top: 16px;
-      min-height: 20px;
-      text-align: center;
-      font-size: 13px;
-    }
-    .err { color: #e74c3c; }
-    .ok  { color: #2ecc71; }
-    .info { color: #6b6b8a; }
-
-    /* Спиннер */
-    .spinner {
-      display: inline-block;
-      width: 16px; height: 16px;
-      border: 2px solid #2a2a3e;
-      border-top-color: #c0392b;
-      border-radius: 50%;
-      animation: spin .7s linear infinite;
-      vertical-align: middle;
-      margin-right: 6px;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    /* Разделитель */
-    .divider {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin: 24px 0 20px;
-    }
-    .divider::before, .divider::after {
-      content: '';
-      flex: 1;
-      height: 1px;
-      background: #2a2a3e;
-    }
-    .divider span { font-size: 12px; color: #3a3a5a; }
-
-    /* Инфо о ТВ */
-    .tv-info {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      background: #12121e;
-      border: 1px solid #2a2a3e;
-      border-radius: 8px;
-      padding: 12px 14px;
-    }
-    .tv-icon { font-size: 22px; flex-shrink: 0; }
-    .tv-text { font-size: 12px; color: #6b6b8a; line-height: 1.5; }
-    .tv-text strong { color: #9a9abf; }
-  </style>
-</head>
-<body>
-
-<div class="card">
-
-  <div class="logo">
-    <div class="logo-icon">▶</div>
-    <div class="logo-text">Rezka<span>TV</span></div>
-  </div>
-
-  <h1>Вход в аккаунт</h1>
-  <p class="subtitle">Авторизация для вашего Smart TV</p>
-
-  <form id="auth-form" action="javascript:void(0)" autocomplete="on">
-  <div class="field">
-    <label for="login">Логин или e-mail</label>
-    <input id="login" type="text" name="username" autocomplete="username" placeholder="example@mail.com">
-  </div>
-
-  <form id="auth-form" action="javascript:void(0)" autocomplete="on">
-  <div class="field">
-    <label for="pass">Пароль</label>
-    <input id="pass" type="password" name="password" autocomplete="current-password" placeholder="••••••••">
-  </div>
-
-  <button class="btn" id="btn" type="submit">ВОЙТИ</button>
-  </form>
-
-  <div class="status" id="status"></div>
-
-  <div class="divider"><span>КАК ЭТО РАБОТАЕТ</span></div>
-
-  <div class="tv-info">
-    <div class="tv-icon">📺</div>
-    <div class="tv-text">
-      Вы открыли эту страницу с телевизора.<br>
-      После входа <strong>телевизор авторизуется автоматически</strong>.
-    </div>
-  </div>
-
-</div>
-
-<script>
-  // Токен берётся из URL: ?t=abc123
-  const TOKEN = new URLSearchParams(location.search).get('t') || '';
-
-  async function doLogin() {
-    const login = document.getElementById('login').value.trim();
-    const pass  = document.getElementById('pass').value;
-
-    if (!login || !pass) {
-      setStatus('Заполните все поля', 'err');
-      return;
-    }
-
-    const btn = document.getElementById('btn');
-    btn.disabled = true;
-    setStatus('<span class="spinner"></span>Подключаемся…', 'info');
-
-    try {
-      const res  = await fetch('/session/submit', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ token: TOKEN, login, password: pass }),
-      });
-      const data = await res.json();
-
-      if (data.success) {
-        setStatus('✓ Телевизор авторизован! Можно закрыть страницу.', 'ok');
-      } else {
-        setStatus(data.error || 'Неверный логин или пароль', 'err');
-        btn.disabled = false;
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0"
+    />
+    <title>RezkaTV — Вход</title>
+    <link rel="icon" type="image/png" href="/icon.png" />
+    <link rel="apple-touch-icon" href="/icon.png" />
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
       }
-    } catch (e) {
-      setStatus('Ошибка соединения с сервером', 'err');
-      btn.disabled = false;
-    }
-  }
 
-  function setStatus(html, cls) {
-    const el = document.getElementById('status');
-    el.innerHTML = html;
-    el.className = 'status ' + cls;
-  }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
+          sans-serif;
+        background: #141420;
+        color: #fff;
+        min-height: 100vh;
+        min-height: 100dvh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+      }
 
-  document.getElementById('auth-form').addEventListener('submit', e => { e.preventDefault(); doLogin(); });
+      .card {
+        background: #1c1c2e;
+        border: 1px solid #2a2a3e;
+        border-radius: 12px;
+        padding: 32px 28px;
+        width: 100%;
+        max-width: 420px;
+      }
 
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Enter') doLogin();
-  });
-</script>
+      /* Logo */
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 24px;
+      }
+      .logo img {
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        flex-shrink: 0;
+        object-fit: cover;
+      }
+      .logo-text {
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        color: #fff;
+      }
+      .logo-text span {
+        color: #c0392b;
+      }
 
-</body>
+      /* Heading */
+      h1 {
+        font-size: clamp(17px, 4vw, 20px);
+        font-weight: 700;
+        color: #fff;
+        margin-bottom: 6px;
+      }
+      .subtitle {
+        font-size: clamp(12px, 3vw, 13px);
+        color: #6b6b8a;
+        margin-bottom: 24px;
+      }
+
+      /* Fields */
+      .field {
+        margin-bottom: 14px;
+      }
+      label {
+        display: block;
+        font-size: 11px;
+        font-weight: 600;
+        color: #6b6b8a;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-bottom: 7px;
+      }
+      input {
+        width: 100%;
+        padding: 13px 16px;
+        background: #12121e;
+        border: 1px solid #2a2a3e;
+        border-radius: 8px;
+        color: #fff;
+        font-size: 16px; /* 16px prevents iOS zoom on focus */
+        outline: none;
+        transition: border-color 0.2s;
+        -webkit-appearance: none;
+        appearance: none;
+      }
+      input::placeholder {
+        color: #3a3a5a;
+      }
+      input:focus {
+        border-color: #8b1a1a;
+      }
+
+      /* Button */
+      .btn {
+        width: 100%;
+        padding: 14px;
+        margin-top: 8px;
+        background: transparent;
+        border: 2px solid #fff;
+        border-radius: 8px;
+        color: #fff;
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        cursor: pointer;
+        transition:
+          background 0.2s,
+          color 0.2s;
+        -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
+      }
+      .btn:hover {
+        background: #fff;
+        color: #141420;
+      }
+      .btn:active {
+        opacity: 0.85;
+      }
+      .btn:disabled {
+        opacity: 0.4;
+        pointer-events: none;
+      }
+
+      /* Status */
+      .status {
+        margin-top: 16px;
+        min-height: 20px;
+        text-align: center;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      .err {
+        color: #e74c3c;
+      }
+      .ok {
+        color: #2ecc71;
+      }
+      .info {
+        color: #6b6b8a;
+      }
+
+      /* Spinner */
+      .spinner {
+        display: inline-block;
+        width: 16px;
+        height: 16px;
+        border: 2px solid #2a2a3e;
+        border-top-color: #c0392b;
+        border-radius: 50%;
+        animation: spin 0.7s linear infinite;
+        vertical-align: middle;
+        margin-right: 6px;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* Divider */
+      .divider {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: 20px 0 16px;
+      }
+      .divider::before,
+      .divider::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: #2a2a3e;
+      }
+      .divider span {
+        font-size: 11px;
+        color: #3a3a5a;
+        white-space: nowrap;
+      }
+
+      /* TV info */
+      .tv-info {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        background: #12121e;
+        border: 1px solid #2a2a3e;
+        border-radius: 8px;
+        padding: 12px 14px;
+      }
+      .tv-icon {
+        font-size: 22px;
+        flex-shrink: 0;
+      }
+      .tv-text {
+        font-size: 12px;
+        color: #6b6b8a;
+        line-height: 1.5;
+      }
+      .tv-text strong {
+        color: #9a9abf;
+      }
+
+      /* ── Tablet (≥600px) ── */
+      @media (min-width: 600px) {
+        body {
+          padding: 24px;
+        }
+        .card {
+          padding: 40px 36px;
+        }
+        h1 {
+          font-size: 20px;
+        }
+        .subtitle {
+          font-size: 13px;
+        }
+        input {
+          font-size: 15px;
+        }
+      }
+
+      /* ── Desktop (≥1024px) ── */
+      @media (min-width: 1024px) {
+        .card {
+          max-width: 440px;
+        }
+      }
+
+      /* ── Small phones (≤360px) ── */
+      @media (max-width: 360px) {
+        .card {
+          padding: 24px 18px;
+        }
+        h1 {
+          font-size: 17px;
+        }
+        .btn {
+          font-size: 13px;
+          padding: 13px;
+        }
+      }
+
+      /* ── Landscape phones ── */
+      @media (max-height: 500px) and (orientation: landscape) {
+        body {
+          align-items: flex-start;
+          padding: 12px 16px;
+        }
+        .card {
+          padding: 20px 24px;
+        }
+        .logo {
+          margin-bottom: 14px;
+        }
+        .subtitle {
+          margin-bottom: 14px;
+        }
+        .field {
+          margin-bottom: 10px;
+        }
+        .divider {
+          margin: 14px 0 10px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="logo">
+        <img src="/icon.png" alt="RezkaTV" />
+        <div class="logo-text">Rezka<span>TV</span></div>
+      </div>
+
+      <h1>Вход в аккаунт</h1>
+      <p class="subtitle">Авторизация для вашего Smart TV</p>
+
+      <form id="auth-form" action="javascript:void(0)" autocomplete="on">
+        <div class="field">
+          <label for="login">Логин или e-mail</label>
+          <input
+            id="login"
+            type="text"
+            name="username"
+            autocomplete="username"
+            placeholder="example@mail.com"
+            inputmode="email"
+          />
+        </div>
+        <div class="field">
+          <label for="pass">Пароль</label>
+          <input
+            id="pass"
+            type="password"
+            name="password"
+            autocomplete="current-password"
+            placeholder="••••••••"
+          />
+        </div>
+        <button class="btn" id="btn" type="submit">ВОЙТИ</button>
+      </form>
+
+      <div class="status" id="status"></div>
+
+      <div class="divider"><span>КАК ЭТО РАБОТАЕТ</span></div>
+
+      <div class="tv-info">
+        <div class="tv-icon">📺</div>
+        <div class="tv-text">
+          Вы открыли эту страницу с телевизора.<br />
+          После входа <strong>телевизор авторизуется автоматически</strong>.
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const TOKEN = new URLSearchParams(location.search).get("t") || "";
+
+      async function doLogin() {
+        const login = document.getElementById("login").value.trim();
+        const pass = document.getElementById("pass").value;
+
+        if (!login || !pass) {
+          setStatus("Заполните все поля", "err");
+          return;
+        }
+
+        const btn = document.getElementById("btn");
+        btn.disabled = true;
+        setStatus('<span class="spinner"></span>Подключаемся…', "info");
+
+        try {
+          const res = await fetch("/session/submit", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token: TOKEN, login, password: pass }),
+          });
+          const data = await res.json();
+
+          if (data.success) {
+            setStatus("✓ Телевизор авторизован! Можно закрыть страницу.", "ok");
+          } else {
+            setStatus(data.error || "Неверный логин или пароль", "err");
+            btn.disabled = false;
+          }
+        } catch (e) {
+          setStatus("Ошибка соединения с сервером", "err");
+          btn.disabled = false;
+        }
+      }
+
+      function setStatus(html, cls) {
+        const el = document.getElementById("status");
+        el.innerHTML = html;
+        el.className = "status " + cls;
+      }
+
+      document.getElementById("auth-form").addEventListener("submit", (e) => {
+        e.preventDefault();
+        doLogin();
+      });
+    </script>
+  </body>
 </html>
