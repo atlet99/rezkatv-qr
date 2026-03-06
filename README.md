@@ -243,6 +243,7 @@ const pollInterval = setInterval(async () => {
 - Automatic cleanup removes expired sessions every 60 seconds
 - Credentials are transmitted over HTTPS to HDRezka
 - Production setup uses Cloudflare's Strict/Full SSL with encrypted origin certificates via SOPS
+- **Strict Host Routing**: Nginx automatically drops connections (status 444) on ports 80/443 for IP scans or unknown host headers. HTTP to HTTPS redirects only apply to the target `DOMAIN`.
 
 ## License
 

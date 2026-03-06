@@ -29,32 +29,29 @@ map $http_user_agent $bad_agent {
     ~*python-requests 1;
 }
 
-# Only allow Cloudflare as proxy (optional but strong)
-# If you want to block direct access bypassing CF — uncomment and add CF IP ranges
-# geo $cloudflare_ip {
-#     default 0;
-#     103.21.244.0/22 1;
-#     103.22.200.0/22 1;
-#     103.31.4.0/22   1;
-#     104.16.0.0/13   1;
-#     104.24.0.0/14   1;
-#     108.162.192.0/18 1;
-#     131.0.72.0/22   1;
-#     141.101.64.0/18 1;
-#     162.158.0.0/15  1;
-#     172.64.0.0/13   1;
-#     173.245.48.0/20 1;
-#     188.114.96.0/20 1;
-#     190.93.240.0/20 1;
-#     197.234.240.0/22 1;
-#     198.41.128.0/17 1;
-# }
-
-# HTTP → HTTPS redirect
+# Drop unknown hosts on port 80
 server {
     listen 80 default_server;
     server_name _;
-    return 301 https://$host$request_uri;
+    return 444;
+}
+
+# Redirect only our domain HTTP → HTTPS
+server {
+    listen 80;
+    server_name ${DOMAIN};
+    return 301 https://${DOMAIN}$request_uri;
+}
+
+# Drop unknown hosts on port 443
+server {
+    listen 443 ssl default_server;
+    server_name _;
+
+    ssl_certificate     /etc/nginx/certs/crt.pem;
+    ssl_certificate_key /etc/nginx/certs/crt.key;
+
+    return 444;
 }
 
 server {
@@ -71,7 +68,7 @@ server {
     ssl_prefer_server_ciphers off;
     ssl_session_cache   shared:SSL:10m;
     ssl_session_timeout 1d;
-    ssl_buffer_size     4k;  # reduce TTFB for small responses
+    ssl_buffer_size     4k;
 
     # --- Security headers ---
     add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
@@ -88,7 +85,7 @@ server {
     send_timeout                10s;
     large_client_header_buffers 4 8k;
     client_header_buffer_size   1k;
-    client_body_buffer_size     16k;  # buffer body in memory, avoid temp files
+    client_body_buffer_size     16k;
 
     # Max connections per IP
     limit_conn conn_per_ip 20;
@@ -133,7 +130,6 @@ server {
         proxy_set_header   X-Forwarded-Proto $scheme;
         proxy_set_header   Connection "";
 
-        # Timeouts for upstream
         proxy_connect_timeout 5s;
         proxy_read_timeout    10s;
         proxy_send_timeout    10s;

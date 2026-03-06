@@ -12,7 +12,7 @@ services:
       - internal
 
   nginx:
-    image: nginx:1.28-alpine3.23
+    image: nginx:1.29.5-alpine3.23
     container_name: qr-auth-nginx
     restart: always
     ports:
