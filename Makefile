@@ -3,7 +3,7 @@ export
 
 SOPS_KEY_FILE ?= $(HOME)/.sops/key.txt
 
-.PHONY: help up down restart restart-app logs deploy sops-init sops-enc sops-dec
+.PHONY: help up down restart restart-app logs deploy sops-init sops-enc sops-dec setup-ufw
 
 help: ## Show available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(firstword $(MAKEFILE_LIST)) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -43,5 +43,8 @@ sops-dec: ## Decrypt certificates
 	SOPS_AGE_KEY_FILE=$(SOPS_KEY_FILE) sops --decrypt certs/enc.crt.key > certs/crt.key
 	@chmod 600 certs/crt.key
 	@echo "Certificates decrypted for Nginx"
+
+setup-ufw: ## Auto-configure UFW firewall
+	bash scripts/setup-ufw.sh
 
 deploy: sops-dec up ## Full deploy: decrypt certs and start services

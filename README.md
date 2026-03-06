@@ -60,6 +60,18 @@ npm start
 
 ### Using Docker (production)
 
+#### Step 0: Install dependencies & configure firewall
+
+On a fresh server, you need to install essential packages (including `make` and `docker`) and configure the UFW firewall.
+
+```bash
+# 1. Install dependencies
+bash scripts/setup-deps.sh
+
+# 2. Configure UFW firewall (Run as root or with sudo)
+make setup-ufw
+```
+
 #### Step 1: Initialize SOPS and generate Age key
 
 ```bash
@@ -71,6 +83,7 @@ make sops-init
 
 Obtain your origin certificates from Cloudflare (Origin CA).
 Save them as:
+
 - `certs/crt.pem`
 - `certs/crt.key`
 
@@ -97,18 +110,19 @@ Server will be available at `http://your-domain.com` (or `https://` if proxied v
 
 #### Available Make Commands
 
-| Command          | Description                                |
-| ---------------- | ------------------------------------------ |
-| `make help`      | Show all available commands                |
-| `make up`        | Start all services                         |
-| `make down`      | Stop all services                          |
-| `make restart`   | Restart nginx                              |
-| `make restart-app`| Rebuild and restart the Node.js API       |
-| `make logs`      | Show nginx logs                            |
-| `make sops-init` | Generate new age key for SOPS              |
-| `make sops-enc`  | Encrypt origin certificates                |
-| `make sops-dec`  | Decrypt certificates for Nginx             |
-| `make deploy`    | Full deploy: decrypt certs & start services|
+| Command            | Description                                 |
+| ------------------ | ------------------------------------------- |
+| `make help`        | Show all available commands                 |
+| `make up`          | Start all services                          |
+| `make down`        | Stop all services                           |
+| `make restart`     | Restart nginx                               |
+| `make restart-app` | Rebuild and restart the Node.js API         |
+| `make logs`        | Show nginx logs                             |
+| `make sops-init`   | Generate new age key for SOPS               |
+| `make sops-enc`    | Encrypt origin certificates                 |
+| `make sops-dec`    | Decrypt certificates for Nginx              |
+| `make setup-ufw`   | Auto-configure UFW firewall                 |
+| `make deploy`      | Full deploy: decrypt certs & start services |
 
 ## API Endpoints
 
@@ -150,11 +164,11 @@ Server will be available at `http://your-domain.com` (or `https://` if proxied v
 
 ## Environment Variables
 
-| Variable       | Default      | Description                          |
-| -------------- | ------------ | ------------------------------------ |
-| `PORT`         | `3000`       | Server port (internal)               |
-| `HDREZKA_HOST` | `hdrezka.ag` | Default HDRezka host for login       |
-| `DOMAIN`       | —            | Your domain for nginx routing        |
+| Variable       | Default      | Description                    |
+| -------------- | ------------ | ------------------------------ |
+| `PORT`         | `3000`       | Server port (internal)         |
+| `HDREZKA_HOST` | `hdrezka.ag` | Default HDRezka host for login |
+| `DOMAIN`       | —            | Your domain for nginx routing  |
 
 ## Project Structure
 
@@ -176,10 +190,10 @@ rezkatv-qr/
 
 ## Docker Services
 
-| Service  | Description                              |
-| -------- | ---------------------------------------- |
-| `app`    | Bun server on port 3000 (internal)       |
-| `nginx`  | Reverse proxy on ports 80, 443 with SSL  |
+| Service | Description                             |
+| ------- | --------------------------------------- |
+| `app`   | Bun server on port 3000 (internal)      |
+| `nginx` | Reverse proxy on ports 80, 443 with SSL |
 
 ## Integration with Smart TV App
 
