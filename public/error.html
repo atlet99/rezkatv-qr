@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RezkaTV — Ошибка</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
+      background: #141420;
+      color: #fff;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .card {
+      background: #1c1c2e;
+      border: 1px solid #2a2a3e;
+      border-radius: 12px;
+      padding: 40px 36px;
+      width: 100%;
+      max-width: 400px;
+      text-align: center;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 32px;
+      justify-content: center;
+    }
+    .logo-icon {
+      width: 36px; height: 36px;
+      background: #8b1a1a;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+    }
+    .logo-text {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: .03em;
+      color: #fff;
+    }
+    .logo-text span { color: #c0392b; }
+
+    .error-code {
+      font-size: 72px;
+      font-weight: 800;
+      color: #2a2a3e;
+      line-height: 1;
+      margin-bottom: 8px;
+      letter-spacing: -2px;
+      position: relative;
+    }
+    .error-code::after {
+      content: attr(data-code);
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, #8b1a1a, #c0392b);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      opacity: 0.15;
+    }
+
+    .error-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+      display: block;
+    }
+
+    h1 {
+      font-size: 20px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      font-size: 13px;
+      color: #6b6b8a;
+      margin-bottom: 28px;
+      line-height: 1.6;
+    }
+
+    .divider {
+      height: 1px;
+      background: #2a2a3e;
+      margin: 24px 0;
+    }
+
+    .btn {
+      display: inline-block;
+      width: 100%;
+      padding: 14px;
+      background: transparent;
+      border: 2px solid #fff;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: background .2s, color .2s;
+      text-decoration: none;
+    }
+    .btn:hover { background: #fff; color: #141420; }
+    .btn:active { opacity: .85; }
+
+    .error-details {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: #12121e;
+      border: 1px solid #2a2a3e;
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-top: 16px;
+      text-align: left;
+    }
+    .error-details-icon { font-size: 20px; flex-shrink: 0; }
+    .error-details-text { font-size: 12px; color: #6b6b8a; line-height: 1.5; }
+    .error-details-text strong { color: #9a9abf; }
+  </style>
+</head>
+<body>
+
+<div class="card">
+
+  <div class="logo">
+    <div class="logo-icon">▶</div>
+    <div class="logo-text">Rezka<span>TV</span></div>
+  </div>
+
+  <span class="error-icon" id="error-icon">⚠️</span>
+
+  <h1 id="error-title">Что-то пошло не так</h1>
+  <p class="subtitle" id="error-subtitle">Страница недоступна или не существует.</p>
+
+  <div class="divider"></div>
+
+  <button class="btn" onclick="window.close()">ЗАКРЫТЬ СТРАНИЦУ</button>
+
+  <div class="error-details">
+    <div class="error-details-icon">📺</div>
+    <div class="error-details-text">
+      Если вы попали сюда с телевизора —<br>
+      <strong>обновите QR-код и попробуйте снова</strong>.
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const STATUS = parseInt(new URLSearchParams(location.search).get('code') || '0');
+
+  const errors = {
+    400: { icon: '🚫', title: 'Неверный запрос',         subtitle: 'Запрос содержит ошибку или недопустимые данные.' },
+    403: { icon: '🔒', title: 'Доступ запрещён',          subtitle: 'У вас нет прав для просмотра этой страницы.' },
+    404: { icon: '🔍', title: 'Страница не найдена',      subtitle: 'Такой страницы не существует. Возможно, ссылка устарела.' },
+    405: { icon: '⛔', title: 'Метод не разрешён',        subtitle: 'Этот тип запроса не поддерживается.' },
+    429: { icon: '⏱️', title: 'Слишком много запросов',   subtitle: 'Вы отправляете запросы слишком часто. Подождите немного.' },
+    500: { icon: '🔧', title: 'Ошибка сервера',           subtitle: 'Внутренняя ошибка. Мы уже работаем над её устранением.' },
+    502: { icon: '🔌', title: 'Сервис недоступен',        subtitle: 'Не удалось подключиться к приложению. Попробуйте позже.' },
+    503: { icon: '🛠️', title: 'Сервис на обслуживании',   subtitle: 'Сервис временно недоступен. Попробуйте через несколько минут.' },
+    504: { icon: '⌛', title: 'Превышено время ожидания', subtitle: 'Сервер не ответил вовремя. Попробуйте позже.' },
+  };
+
+  const err = errors[STATUS] || { icon: '⚠️', title: 'Что-то пошло не так', subtitle: 'Произошла неизвестная ошибка.' };
+  document.getElementById('error-icon').textContent   = err.icon;
+  document.getElementById('error-title').textContent  = err.title;
+  document.getElementById('error-subtitle').textContent = err.subtitle;
+</script>
+
+</body>
+</html>

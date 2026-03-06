@@ -39,6 +39,7 @@ A lightweight server for authenticating HDRezka accounts on Smart TV via QR code
 - Session-based flow with 5-minute TTL
 - Automatic cleanup of expired sessions
 - Mobile-friendly auth page
+- Custom error pages for improved UX
 - Docker support with Bun runtime
 - Protected Nginx reverse proxy (configured for CloudFlare Full/Strict SSL + SOPS encryption)
 

@@ -20,6 +20,7 @@ services:
       - "443:443"
     volumes:
       - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./public/error.html:/etc/nginx/html/error.html:ro
       - ./certs:/etc/nginx/certs:ro
       - /var/log/nginx:/var/log/nginx
     environment:

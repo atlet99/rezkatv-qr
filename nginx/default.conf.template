@@ -94,6 +94,22 @@ server {
     access_log /var/log/nginx/access.log detailed;
     error_log  /var/log/nginx/error.log warn;
 
+    # --- Error pages ---
+    error_page 400 /error.html?code=400;
+    error_page 403 /error.html?code=403;
+    error_page 404 /error.html?code=404;
+    error_page 405 /error.html?code=405;
+    error_page 429 /error.html?code=429;
+    error_page 500 /error.html?code=500;
+    error_page 502 /error.html?code=502;
+    error_page 503 /error.html?code=503;
+    error_page 504 /error.html?code=504;
+
+    location = /error.html {
+        root /etc/nginx/html;
+        internal;
+    }
+
     # --- Block bad agents ---
     if ($bad_agent) {
         return 403;
@@ -171,12 +187,12 @@ server {
         proxy_send_timeout    10s;
 
         proxy_intercept_errors on;
-        error_page 502 503 504 = @unavailable;
+        error_page 400 403 404 405 429 500 502 503 504 = @error_page;
     }
 
-    # --- Unavailable fallback ---
-    location @unavailable {
-        add_header Content-Type application/json always;
-        return 503 '{"error":"service unavailable"}';
+    # --- Error page fallback ---
+    location @error_page {
+        root /etc/nginx/html;
+        try_files /error.html =500;
     }
 }
