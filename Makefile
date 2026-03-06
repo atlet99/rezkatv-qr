@@ -14,7 +14,7 @@ up: ## Start all services
 down: ## Stop all services
 	docker compose down
 
-restart: ## Restart nginx (e.g. after obtaining certificate)
+restart: ## Restart nginx (e.g. after configuration changes)
 	docker compose restart nginx
 
 restart-app: ## Rebuild and restart the Node.js API (app)
@@ -33,7 +33,7 @@ sops-init: ## Generate new age key for SOPS
 		echo "Key already exists at $(HOME)/.sops/key.txt"; \
 	fi
 
-sops-enc: ## Encrypt origin.pem and origin.key
+sops-enc: ## Encrypt crt.pem and crt.key
 	SOPS_AGE_KEY_FILE=$(SOPS_KEY_FILE) sops --encrypt certs/crt.pem > certs/enc.crt.pem
 	SOPS_AGE_KEY_FILE=$(SOPS_KEY_FILE) sops --encrypt certs/crt.key > certs/enc.crt.key
 	@echo "Files encrypted successfully"

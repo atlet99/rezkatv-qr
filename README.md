@@ -40,7 +40,7 @@ A lightweight server for authenticating HDRezka accounts on Smart TV via QR code
 - Automatic cleanup of expired sessions
 - Mobile-friendly auth page
 - Docker support with Bun runtime
-- Protected Nginx reverse proxy (designed for CloudFlare Flexible SSL)
+- Protected Nginx reverse proxy (configured for CloudFlare Full/Strict SSL + SOPS encryption)
 
 ## Quick Start
 
@@ -60,14 +60,34 @@ npm start
 
 ### Using Docker (production)
 
-#### Step 1: Create .env file
+#### Step 1: Initialize SOPS and generate Age key
+
+```bash
+make sops-init
+# Update .sops.yaml with the generated public key
+```
+
+#### Step 2: Add and encrypt your domain certificates
+
+Obtain your origin certificates from Cloudflare (Origin CA).
+Save them as:
+- `certs/crt.pem`
+- `certs/crt.key`
+
+Encrypt them to safely commit into the repository:
+
+```bash
+make sops-enc
+```
+
+#### Step 3: Create .env file
 
 ```bash
 cp .env-example .env
 vim .env  # Set DOMAIN
 ```
 
-#### Step 2: Start services
+#### Step 4: Start services
 
 ```bash
 make deploy
@@ -85,7 +105,10 @@ Server will be available at `http://your-domain.com` (or `https://` if proxied v
 | `make restart`   | Restart nginx                              |
 | `make restart-app`| Rebuild and restart the Node.js API       |
 | `make logs`      | Show nginx logs                            |
-| `make deploy`    | Full deploy: start services                |
+| `make sops-init` | Generate new age key for SOPS              |
+| `make sops-enc`  | Encrypt origin certificates                |
+| `make sops-dec`  | Decrypt certificates for Nginx             |
+| `make deploy`    | Full deploy: decrypt certs & start services|
 
 ## API Endpoints
 
@@ -201,7 +224,7 @@ const pollInterval = setInterval(async () => {
 - Tokens are single-use (deleted after successful auth)
 - Automatic cleanup removes expired sessions every 60 seconds
 - Credentials are transmitted over HTTPS to HDRezka
-- Production setup uses HTTPS via Let's Encrypt
+- Production setup uses Cloudflare's Strict/Full SSL with encrypted origin certificates via SOPS
 
 ## License
 
