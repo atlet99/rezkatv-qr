@@ -62,7 +62,7 @@ npm start
 
 #### Step 0: Install dependencies & configure firewall
 
-On a fresh server, you need to install essential packages (including `make` and `docker`) and configure the UFW firewall.
+On a fresh server, you need to install essential packages (including `make` and `docker`) and configure the UFW firewall and fail2ban.
 
 ```bash
 # 1. Install dependencies
@@ -70,6 +70,9 @@ bash scripts/setup-deps.sh
 
 # 2. Configure UFW firewall (Run as root or with sudo)
 make setup-ufw
+
+# 3. Configure fail2ban (Run as root or with sudo)
+make setup-fail2ban
 ```
 
 #### Step 1: Initialize SOPS and generate Age key
@@ -120,9 +123,10 @@ Server will be available at `http://your-domain.com` (or `https://` if proxied v
 | `make logs`        | Show nginx logs                             |
 | `make sops-init`   | Generate new age key for SOPS               |
 | `make sops-enc`    | Encrypt origin certificates                 |
-| `make sops-dec`    | Decrypt certificates for Nginx              |
-| `make setup-ufw`   | Auto-configure UFW firewall                 |
-| `make deploy`      | Full deploy: decrypt certs & start services |
+| `make sops-dec`      | Decrypt certificates for Nginx              |
+| `make setup-ufw`     | Auto-configure UFW firewall                 |
+| `make setup-fail2ban`| Auto-configure fail2ban rules               |
+| `make deploy`        | Full deploy: decrypt certs & start services |
 
 ## API Endpoints
 
