@@ -38,8 +38,7 @@ A lightweight server for authenticating HDRezka accounts on Smart TV via QR code
 - Dynamic host selection (supports different HDRezka mirrors)
 - Session-based flow with 5-minute TTL
 - Automatic cleanup of expired sessions
-- Mobile-friendly auth page
-- Custom error pages for improved UX
+- Modern, responsive UI for auth and custom error pages
 - Docker support with Bun runtime
 - Protected Nginx reverse proxy (configured for CloudFlare Full/Strict SSL + SOPS encryption)
 
@@ -244,7 +243,7 @@ const pollInterval = setInterval(async () => {
 - Automatic cleanup removes expired sessions every 60 seconds
 - Credentials are transmitted over HTTPS to HDRezka
 - Production setup uses Cloudflare's Strict/Full SSL with encrypted origin certificates via SOPS
-- **Strict Host Routing**: Nginx automatically drops connections (status 444) on ports 80/443 for IP scans or unknown host headers. HTTP to HTTPS redirects only apply to the target `DOMAIN`.
+- **Strict Host Routing**: Nginx automatically redirects unknown hosts or direct IP accesses to the official HTTPS `DOMAIN`, protecting against IP scanning.
 
 ## License
 
