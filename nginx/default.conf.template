@@ -29,11 +29,11 @@ map $http_user_agent $bad_agent {
     ~*python-requests 1;
 }
 
-# Drop unknown hosts on port 80
+# Redirect unknown hosts on port 80 → correct domain
 server {
     listen 80 default_server;
     server_name _;
-    return 444;
+    return 301 https://${DOMAIN}$request_uri;
 }
 
 # Redirect only our domain HTTP → HTTPS
@@ -43,7 +43,7 @@ server {
     return 301 https://${DOMAIN}$request_uri;
 }
 
-# Drop unknown hosts on port 443
+# Redirect unknown hosts on port 443 → correct domain
 server {
     listen 443 ssl default_server;
     server_name _;
@@ -51,7 +51,7 @@ server {
     ssl_certificate     /etc/nginx/certs/crt.pem;
     ssl_certificate_key /etc/nginx/certs/crt.key;
 
-    return 444;
+    return 301 https://${DOMAIN}$request_uri;
 }
 
 server {
