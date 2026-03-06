@@ -13,6 +13,9 @@ log_format detailed '$time_iso8601 '
 limit_req_zone $binary_remote_addr zone=general:10m rate=30r/s;
 limit_req_zone $binary_remote_addr zone=session:10m rate=5r/m;
 
+# Connection limiting per IP
+limit_conn_zone $binary_remote_addr zone=conn_per_ip:10m;
+
 # Block malicious user-agents
 map $http_user_agent $bad_agent {
     default           0;
@@ -25,6 +28,27 @@ map $http_user_agent $bad_agent {
     ~*nuclei          1;
     ~*python-requests 1;
 }
+
+# Only allow Cloudflare as proxy (optional but strong)
+# If you want to block direct access bypassing CF — uncomment and add CF IP ranges
+# geo $cloudflare_ip {
+#     default 0;
+#     103.21.244.0/22 1;
+#     103.22.200.0/22 1;
+#     103.31.4.0/22   1;
+#     104.16.0.0/13   1;
+#     104.24.0.0/14   1;
+#     108.162.192.0/18 1;
+#     131.0.72.0/22   1;
+#     141.101.64.0/18 1;
+#     162.158.0.0/15  1;
+#     172.64.0.0/13   1;
+#     173.245.48.0/20 1;
+#     188.114.96.0/20 1;
+#     190.93.240.0/20 1;
+#     197.234.240.0/22 1;
+#     198.41.128.0/17 1;
+# }
 
 # HTTP → HTTPS redirect
 server {
@@ -46,6 +70,7 @@ server {
     ssl_prefer_server_ciphers off;
     ssl_session_cache   shared:SSL:10m;
     ssl_session_timeout 1d;
+    ssl_buffer_size     4k;  # reduce TTFB for small responses
 
     # --- Security headers ---
     add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
@@ -56,12 +81,16 @@ server {
     add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none';" always;
 
     # --- Request limits ---
-    client_max_body_size      10k;
-    client_body_timeout       10s;
-    client_header_timeout     10s;
-    send_timeout              10s;
+    client_max_body_size        10k;
+    client_body_timeout         10s;
+    client_header_timeout       10s;
+    send_timeout                10s;
     large_client_header_buffers 4 8k;
-    client_header_buffer_size 1k;
+    client_header_buffer_size   1k;
+    client_body_buffer_size     16k;  # buffer body in memory, avoid temp files
+
+    # Max connections per IP
+    limit_conn conn_per_ip 20;
 
     # --- Logging ---
     access_log /var/log/nginx/access.log detailed;
@@ -84,7 +113,8 @@ server {
 
     # --- Session submit — most sensitive endpoint ---
     location /session/submit {
-        limit_req zone=session burst=3 nodelay;
+        limit_req  zone=session burst=3 nodelay;
+        limit_conn conn_per_ip 5;
 
         if ($request_method != POST) {
             return 405;
@@ -101,11 +131,17 @@ server {
         proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header   X-Forwarded-Proto $scheme;
         proxy_set_header   Connection "";
+
+        # Timeouts for upstream
+        proxy_connect_timeout 5s;
+        proxy_read_timeout    10s;
+        proxy_send_timeout    10s;
     }
 
     # --- Session other routes ---
     location /session/ {
-        limit_req zone=session burst=10 nodelay;
+        limit_req  zone=session burst=10 nodelay;
+        limit_conn conn_per_ip 10;
 
         proxy_pass         http://app:3000;
         proxy_http_version 1.1;
@@ -114,11 +150,16 @@ server {
         proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header   X-Forwarded-Proto $scheme;
         proxy_set_header   Connection "";
+
+        proxy_connect_timeout 5s;
+        proxy_read_timeout    30s;
+        proxy_send_timeout    10s;
     }
 
     # --- Static + auth page ---
     location / {
-        limit_req zone=general burst=50 nodelay;
+        limit_req  zone=general burst=50 nodelay;
+        limit_conn conn_per_ip 20;
 
         proxy_pass         http://app:3000;
         proxy_http_version 1.1;
@@ -127,6 +168,10 @@ server {
         proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header   X-Forwarded-Proto $scheme;
         proxy_set_header   Connection "";
+
+        proxy_connect_timeout 5s;
+        proxy_read_timeout    30s;
+        proxy_send_timeout    10s;
 
         proxy_intercept_errors on;
         error_page 502 503 504 = @unavailable;
