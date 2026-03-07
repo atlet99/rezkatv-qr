@@ -38,6 +38,7 @@ A lightweight server for authenticating HDRezka accounts on Smart TV via QR code
 - Dynamic host selection (supports different HDRezka mirrors)
 - Session-based flow with 5-minute TTL
 - Automatic cleanup of expired sessions
+- Automatic Nginx log rotation (7 days retention with compression)
 - Modern, responsive UI for auth and custom error pages
 - Docker support with Bun runtime
 - Protected Nginx reverse proxy (configured for CloudFlare Full/Strict SSL + SOPS encryption)
@@ -73,6 +74,9 @@ make setup-ufw
 
 # 3. Configure fail2ban (Run as root or with sudo)
 make setup-fail2ban
+
+# 4. Configure logrotate for Nginx (Run as root or with sudo)
+make setup-logrotate
 ```
 
 #### Step 1: Initialize SOPS and generate Age key
@@ -113,20 +117,23 @@ Server will be available at `http://your-domain.com` (or `https://` if proxied v
 
 #### Available Make Commands
 
-| Command            | Description                                 |
-| ------------------ | ------------------------------------------- |
-| `make help`        | Show all available commands                 |
-| `make up`          | Start all services                          |
-| `make down`        | Stop all services                           |
-| `make restart`     | Restart nginx                               |
-| `make restart-app` | Rebuild and restart the Node.js API         |
-| `make logs`        | Show nginx logs                             |
-| `make sops-init`   | Generate new age key for SOPS               |
-| `make sops-enc`    | Encrypt origin certificates                 |
-| `make sops-dec`      | Decrypt certificates for Nginx              |
-| `make setup-ufw`     | Auto-configure UFW firewall                 |
-| `make setup-fail2ban`| Auto-configure fail2ban rules               |
-| `make deploy`        | Full deploy: decrypt certs & start services |
+| Command                | Description                                     |
+| ---------------------- | ----------------------------------------------- |
+| `make help`            | Show all available commands                     |
+| `make up`              | Start all services                              |
+| `make down`            | Stop all services                               |
+| `make restart`         | Restart nginx                                   |
+| `make restart-app`     | Rebuild and restart the Node.js API             |
+| `make logs`            | Show nginx logs                                 |
+| `make sops-init`       | Generate new age key for SOPS                   |
+| `make sops-enc`        | Encrypt origin certificates                     |
+| `make sops-dec`        | Decrypt certificates for Nginx                  |
+| `make setup-ufw`       | Auto-configure UFW firewall                     |
+| `make setup-fail2ban`  | Auto-configure fail2ban rules                   |
+| `make setup-logrotate` | Install nginx logrotate configuration           |
+| `make logrotate-check` | Dry-run logrotate (no changes, just validation) |
+| `make logrotate-run`   | Force logrotate right now (for testing)         |
+| `make deploy`          | Full deploy: decrypt certs & start services     |
 
 ## API Endpoints
 
@@ -241,6 +248,7 @@ const pollInterval = setInterval(async () => {
 - Sessions expire after 5 minutes (TTL: 300000ms)
 - Tokens are single-use (deleted after successful auth)
 - Automatic cleanup removes expired sessions every 60 seconds
+- Nginx logs are rotated daily, compressed, and retained for 7 days
 - Credentials are transmitted over HTTPS to HDRezka
 - Production setup uses Cloudflare's Strict/Full SSL with encrypted origin certificates via SOPS
 - **Strict Host Routing**: Nginx automatically redirects unknown hosts or direct IP accesses to the official HTTPS `DOMAIN`, protecting against IP scanning.
