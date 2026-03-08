@@ -253,6 +253,21 @@ const pollInterval = setInterval(async () => {
 - Production setup uses Cloudflare's Strict/Full SSL with encrypted origin certificates via SOPS
 - **Strict Host Routing**: Nginx automatically redirects unknown hosts or direct IP accesses to the official HTTPS `DOMAIN`, protecting against IP scanning.
 
+## Disclaimer
+
+> [!WARNING]
+> This project is an **independent, non-commercial development** and is not affiliated with the "HDRezka" online cinema (hdrezka.ag), its administration, or its owners in any way. The application does not distribute any content; it merely provides a tool for authenticating on the site from Smart TVs.
+
+> [!CAUTION]
+> The use of this software is entirely **at your own risk**. The author of the project bears no legal, financial, or other responsibility for:
+>
+> - Potential damage to or loss of your data.
+> - Blocking of your accounts or IP addresses, or restriction of access to services.
+> - The functionality of the application in the event of changes to the site's API or structure.
+> - Any other negative consequences that may arise from the use of this authorization server.
+>
+> By providing your credentials to the application, you agree that you are solely responsible for their security and the legitimacy of their use.
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) file.
