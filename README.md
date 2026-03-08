@@ -13,6 +13,20 @@
 >
 > By providing your credentials to the application, you agree that you are solely responsible for their security and the legitimacy of their use.
 
+## Table of Contents
+
+- [Preview](#preview)
+- [How It Works](#how-it-works)
+- [Features](#features)
+- [Quick Start](#quick-start)
+- [API Endpoints](#api-endpoints)
+- [Environment Variables](#environment-variables)
+- [Project Structure](#project-structure)
+- [Docker Services](#docker-services)
+- [Integration with Smart TV App](#integration-with-smart-tv-app)
+- [Security Notes](#security-notes)
+- [License](#license)
+
 A lightweight server for authenticating HDRezka accounts on Smart TV via QR code scanning.
 
 ## Preview
@@ -21,7 +35,7 @@ A lightweight server for authenticating HDRezka accounts on Smart TV via QR code
 
 ## How It Works
 
-```
+```text
 ┌─────────────┐     1. Create session        ┌─────────────┐
 │             │ ───────────────────────────► │             │
 │   Smart TV  │   POST { host: "hdrezka.ag" }│   Server    │
@@ -38,12 +52,26 @@ A lightweight server for authenticating HDRezka accounts on Smart TV via QR code
 └─────────────┘     6. Login to HDRezka     └─────────────┘
                                                         │
       ┌─────────────────────────────────────────────────┘
-      │ 7. Return cookies to TV
+      │ 7. Store cookies in session
       ▼
-┌─────────────┐
-│   Smart TV  │ ◄── 8. Poll status & get cookies
-└─────────────┘
+┌─────────────┐     8. Poll for status      ┌─────────────┐
+│             │ ─────────────────────────►  │             │
+│   Smart TV  │     9. Return cookies       │   Server    │
+│             │ ◄─────────────────────────  │             │
+└─────────────┘                             └─────────────┘
 ```
+
+### Detailed Flow
+
+1. **Create session**: The Smart TV app sends a POST request to `/session/create` with the preferred HDRezka host.
+2. **Return token**: The server initializes a new session with a 5-minute TTL and returns a unique 16-byte hex token.
+3. **Display QR code with token**: The Smart TV application generates and displays a QR Code containing the auth URL: `https://your-domain.com/auth?t={token}`.
+4. **Open auth page**: The user scans the QR code with their smartphone, which opens the mobile-friendly web authentication page.
+5. **Submit credentials**: The user fills in their HDRezka login and password and submits the form (POST to `/session/submit`).
+6. **Login to HDRezka**: The server sends a background request to the specified HDRezka host, handling CSRF tokens and logging the user in.
+7. **Store cookies in session**: Upon successful authentication, the server securely stores the returned HDRezka session cookies in its own temporary session storage.
+8. **Poll for status**: Meanwhile, the Smart TV app continuously polls `/session/check?t={token}` every 2 seconds.
+9. **Return cookies**: Once the server sees the auth was successful (`status: "done"`), it returns the saved cookies to the Smart TV, which then apply them to the TV player's internal web engine or API requests. The token is immediately deleted from the server.
 
 ## Features
 
@@ -199,18 +227,31 @@ Server will be available at `http://your-domain.com` (or `https://` if proxied v
 
 ## Project Structure
 
-```
+```text
 rezkatv-qr/
-├── index.js                 # Express server with session management
+├── certs/                   # Directory for SSL certificates
+│   ├── enc.crt.key          # SOPS-encrypted private key
+│   └── enc.crt.pem          # SOPS-encrypted public cert
+├── nginx/
+│   ├── default.conf.template # Nginx reverse proxy configuration
+│   └── logrotate.conf       # Log rotation configuration
 ├── public/
 │   ├── auth.html            # Mobile auth page
-│   └── rezka-tv-qr.jpg      # Preview image
-├── nginx/
-│   └── default.conf.template # Nginx reverse proxy configuration
-├── Makefile                 # Deploy automation commands
-├── Dockerfile               # Docker image with Bun
-├── docker-compose.yml       # Docker Compose (app + nginx)
+│   ├── error.html           # Custom error pages template
+│   ├── icon.png             # Web app icon
+│   └── rezka-tv-qr.jpg      # Preview image (plus others)
+├── scripts/                 # Server setup and deployment scripts
+│   ├── setup-deps.sh
+│   ├── setup-fail2ban.sh
+│   └── setup-ufw.sh
 ├── .env-example             # Environment variables template
+├── .gitignore               # Git ignored files
+├── .sops.yaml               # SOPS age configuration
+├── docker-compose.yml       # Docker Compose (app + nginx)
+├── Dockerfile               # Docker image with Bun
+├── index.js                 # Express server with session management
+├── LICENSE                  # MIT License
+├── Makefile                 # Deploy automation commands
 ├── package.json             # Project metadata
 └── README.md                # This file
 ```
