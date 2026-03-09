@@ -170,8 +170,9 @@ server {
     }
 
     # --- WebOS Repository Redirect ---
-    location = /webos {
-        proxy_pass https://raw.githubusercontent.com/atlet99/rezkatv-public/refs/heads/main/webos/repository.json;
+    location ~ ^/webos/?$ {
+        rewrite ^.*$ /atlet99/rezkatv-public/refs/heads/main/webos/repository.json break;
+        proxy_pass https://raw.githubusercontent.com;
         proxy_ssl_server_name on;
         proxy_ssl_verify on;
         proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
@@ -185,8 +186,8 @@ server {
         add_header Cache-Control "no-store, no-cache, must-revalidate";
     }
 
-    location ~ ^/webos/(.*)$ {
-        rewrite ^/webos/(.*)$ /atlet99/rezkatv-public/refs/heads/main/webos/$1 break;
+    location ~ ^/webos/(.+)$ {
+        rewrite ^/webos/(.+)$ /atlet99/rezkatv-public/refs/heads/main/webos/$1 break;
         proxy_pass https://raw.githubusercontent.com;
         proxy_ssl_server_name on;
         proxy_ssl_verify on;
@@ -199,7 +200,7 @@ server {
         proxy_no_cache 1;
         proxy_cache_bypass 1;
         add_header Cache-Control "no-store, no-cache, must-revalidate";
-}
+    }
 
     # --- Static + auth page ---
     location / {
