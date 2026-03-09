@@ -169,6 +169,11 @@ server {
         proxy_send_timeout    10s;
     }
 
+    # --- WebOS Repository Redirect ---
+    location = /webos/repository.json {
+        return 301 https://raw.githubusercontent.com/atlet99/rezkatv-public/refs/heads/main/webos/repository.json;
+    }
+
     # --- Static + auth page ---
     location / {
         limit_req  zone=general burst=50 nodelay;
