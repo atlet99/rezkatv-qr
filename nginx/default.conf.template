@@ -170,7 +170,7 @@ server {
     }
 
     # --- WebOS Repository Redirect ---
-    location ~ ^/webos/(.*)$ {
+    location ~ ^/webos/?(.*)$ {
         return 301 https://raw.githubusercontent.com/atlet99/rezkatv-public/refs/heads/main/webos/$1;
     }
 
