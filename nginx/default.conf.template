@@ -170,7 +170,26 @@ server {
     }
 
     # --- WebOS Repository Proxy ---
-    location ~ ^/webos/?$ {
+    location = /webos {
+        rewrite ^.*$ /atlet99/rezkatv-public/refs/heads/main/webos/repository.json break;
+        proxy_pass https://raw.githubusercontent.com;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_ssl_server_name on;
+        proxy_ssl_verify on;
+        proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+
+        proxy_set_header Host raw.githubusercontent.com;
+        proxy_set_header X-Real-IP "";
+        proxy_set_header X-Forwarded-For "";
+
+        proxy_no_cache 1;
+        proxy_cache_bypass 1;
+        add_header Cache-Control "no-store, no-cache, must-revalidate";
+        add_header X-Content-Type-Options "nosniff";
+    }
+
+    location = /webos/ {
         rewrite ^.*$ /atlet99/rezkatv-public/refs/heads/main/webos/repository.json break;
         proxy_pass https://raw.githubusercontent.com;
         proxy_http_version 1.1;
