@@ -170,8 +170,8 @@ server {
     }
 
     # --- WebOS Repository Redirect ---
-    location = /webos/repository.json {
-        return 301 https://raw.githubusercontent.com/atlet99/rezkatv-public/refs/heads/main/webos/repository.json;
+    location ~ ^/webos/(.*)$ {
+        return 301 https://raw.githubusercontent.com/atlet99/rezkatv-public/refs/heads/main/webos/$1;
     }
 
     # --- Static + auth page ---

@@ -86,7 +86,7 @@ A lightweight server for authenticating HDRezka accounts on Smart TV via QR code
 - Docker support with Bun runtime
 - Protected Nginx reverse proxy (configured for CloudFlare Full/Strict SSL + SOPS encryption)
 - **Hardened Security Headers**: Enforces HSTS, CSP, X-Frame-Options, and more.
-- **Direct Repository Route**: A dedicated `/webos/repository.json` fast-redirects directly to the public GitHub repository for WebOS applications parsing.
+- **Dynamic Repository Route**: A dedicated `/webos/*` fast-redirects any request directly to the public GitHub repository for WebOS applications parsing (e.g. `/webos/repository.json`).
 
 ## Quick Start
 
@@ -188,7 +188,7 @@ Server will be available at `http://your-domain.com` (or `https://` if proxied v
 | `GET`  | `/session/check?t=<token>` | Check session status                         |
 | `POST` | `/session/submit`          | Submit credentials from smartphone           |
 | `GET`  | `/auth?t=<token>`          | Auth page for smartphone (QR target)         |
-| `GET`  | `/webos/repository.json`   | Redirects to WebOS repository JSON file      |
+| `GET`  | `/webos/*`                 | Redirects to WebOS repository files          |
 
 ### POST /session/create
 
