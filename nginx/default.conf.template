@@ -125,6 +125,16 @@ server {
         deny all;
     }
 
+    # --- Block scanners: WordPress, phpMyAdmin, env files, etc. ---
+    location ~* ^/(wp-admin|wp-login|wordpress|phpmyadmin|pma|admin|administrator|\.env|\.git|\.svn|config|setup|install|xmlrpc) {
+        return 444;
+    }
+
+    # --- Block common vulnerability scan paths ---
+    location ~* \.(php|asp|aspx|jsp|cgi|sh|py|pl|rb)$ {
+        return 444;
+    }
+
     # --- Session submit — most sensitive endpoint ---
     location /session/submit {
         limit_req  zone=session burst=3 nodelay;
