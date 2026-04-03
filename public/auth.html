@@ -344,17 +344,61 @@
 
     <script>
       const TOKEN = new URLSearchParams(location.search).get("t") || "";
+      const btn = document.getElementById("btn");
+      const loginInput = document.getElementById("login");
+      const passInput = document.getElementById("pass");
+
+      function setFormEnabled(enabled) {
+        btn.disabled = !enabled;
+        loginInput.disabled = !enabled;
+        passInput.disabled = !enabled;
+      }
+
+      async function precheckToken() {
+        if (!TOKEN) {
+          setFormEnabled(false);
+          setStatus("QR-код отсутствует. Откройте ссылку с телевизора заново.", "err");
+          return false;
+        }
+
+        try {
+          const res = await fetch(`/session/check?t=${encodeURIComponent(TOKEN)}`, {
+            method: "GET",
+            headers: { "Accept": "application/json" },
+          });
+          const data = await res.json();
+          if (data.status === "expired") {
+            setFormEnabled(false);
+            setStatus("QR-код истёк. Обновите его на телевизоре.", "err");
+            return false;
+          }
+          if (data.status === "done") {
+            setFormEnabled(false);
+            setStatus("Телевизор уже авторизован. Можно закрыть страницу.", "ok");
+            return false;
+          }
+          if (data.status === "error") {
+            setFormEnabled(false);
+            setStatus(data.message || "Сессия завершилась ошибкой. Обновите QR-код.", "err");
+            return false;
+          }
+          return true;
+        } catch {
+          setFormEnabled(false);
+          setStatus("Не удалось проверить QR-сессию. Попробуйте обновить страницу.", "err");
+          return false;
+        }
+      }
 
       async function doLogin() {
-        const login = document.getElementById("login").value.trim();
-        const pass = document.getElementById("pass").value;
+        const login = loginInput.value.trim();
+        const pass = passInput.value;
 
         if (!login || !pass) {
           setStatus("Заполните все поля", "err");
           return;
         }
 
-        const btn = document.getElementById("btn");
         btn.disabled = true;
         setStatus('<span class="spinner"></span>Подключаемся…', "info");
 
@@ -370,14 +414,15 @@
 
           if (res.ok && data && data.success) {
             setStatus("✓ Телевизор авторизован! Можно закрыть страницу.", "ok");
+            setFormEnabled(false);
           } else {
-            const serverError = data?.error || `Сервер вернул ошибку (${res.status})`;
+            const serverError = data?.message || data?.error || `Сервер вернул ошибку (${res.status})`;
             setStatus(serverError, "err");
-            btn.disabled = false;
+            setFormEnabled(true);
           }
         } catch (e) {
           setStatus("Ошибка соединения с сервером", "err");
-          btn.disabled = false;
+          setFormEnabled(true);
         }
       }
 
@@ -390,6 +435,15 @@
       document.getElementById("auth-form").addEventListener("submit", (e) => {
         e.preventDefault();
         doLogin();
+      });
+
+      setFormEnabled(false);
+      setStatus('<span class="spinner"></span>Проверяем QR-сессию…', "info");
+      precheckToken().then((ok) => {
+        if (ok) {
+          setFormEnabled(true);
+          setStatus("Введите логин и пароль", "info");
+        }
       });
     </script>
   </body>

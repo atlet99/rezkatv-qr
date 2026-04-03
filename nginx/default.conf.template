@@ -1,13 +1,18 @@
-# Custom log format
-log_format detailed '$time_iso8601 '
-                    '[$status] '
-                    '$request_method $scheme://$host$request_uri '
-                    'from $http_cf_connecting_ip (proxy: $remote_addr) '
-                    'ref="$http_referer" '
-                    'ua="$http_user_agent" '
-                    'body=${body_bytes_sent}b '
-                    'rt=${request_time}s '
-                    'upstream_rt=${upstream_response_time}s';
+# Custom JSON log format
+log_format detailed escape=json '{'
+    '"ts":"$time_iso8601",'
+    '"request_id":"$request_id",'
+    '"status":$status,'
+    '"method":"$request_method",'
+    '"url":"$scheme://$host$request_uri",'
+    '"cf_ip":"$http_cf_connecting_ip",'
+    '"proxy_ip":"$remote_addr",'
+    '"referer":"$http_referer",'
+    '"user_agent":"$http_user_agent",'
+    '"bytes_sent":$body_bytes_sent,'
+    '"request_time":"$request_time",'
+    '"upstream_time":"$upstream_response_time"'
+'}';
 
 # Rate limiting zones
 limit_req_zone $binary_remote_addr zone=general:10m rate=30r/s;
@@ -79,6 +84,7 @@ server {
     add_header Referrer-Policy "no-referrer" always;
     add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
     add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://raw.githubusercontent.com/atlet99/rezkatv-qr/refs/heads/main/public/; frame-ancestors 'none';" always;
+    add_header X-Request-ID $request_id always;
 
     # --- Request limits ---
     client_max_body_size        10k;
@@ -156,6 +162,7 @@ server {
         proxy_set_header   X-Real-IP $http_cf_connecting_ip;
         proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_set_header   X-Request-ID $request_id;
         proxy_set_header   Connection "";
 
         proxy_connect_timeout 5s;
@@ -174,6 +181,7 @@ server {
         proxy_set_header   X-Real-IP $http_cf_connecting_ip;
         proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_set_header   X-Request-ID $request_id;
         proxy_set_header   Connection "";
 
         proxy_connect_timeout 5s;
@@ -192,6 +200,7 @@ server {
         proxy_set_header   X-Real-IP $http_cf_connecting_ip;
         proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_set_header   X-Request-ID $request_id;
         proxy_set_header   Connection "";
 
         proxy_connect_timeout 5s;
@@ -210,6 +219,7 @@ server {
         proxy_set_header   X-Real-IP $http_cf_connecting_ip;
         proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_set_header   X-Request-ID $request_id;
         proxy_set_header   Connection "";
 
         proxy_connect_timeout 5s;
@@ -278,6 +288,7 @@ server {
         proxy_set_header   X-Real-IP $http_cf_connecting_ip;
         proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_set_header   X-Request-ID $request_id;
         proxy_set_header   Connection "";
 
         proxy_connect_timeout 5s;
