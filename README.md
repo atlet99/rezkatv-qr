@@ -3,321 +3,295 @@
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/I2I81X6E3R)
 
 > [!WARNING]
-> This project is an **independent, non-commercial development** and is not affiliated with the "HDRezka" online cinema (hdrezka.ag), its administration, or its owners in any way. The application does not distribute any content; it merely provides a tool for authenticating on the site from Smart TVs.
+> This is an independent, non-commercial project and is not affiliated with HDRezka or its owners.
 
 > [!CAUTION]
-> The use of this software is entirely **at your own risk**. The author of the project bears no legal, financial, or other responsibility for:
->
-> - Potential damage to or loss of your data.
-> - Blocking of your accounts or IP addresses, or restriction of access to services.
-> - The functionality of the application in the event of changes to the site's API or structure.
-> - Any other negative consequences that may arise from the use of this authorization server.
->
-> By providing your credentials to the application, you agree that you are solely responsible for their security and the legitimacy of their use.
+> Use at your own risk. You are fully responsible for account safety, legal compliance, and deployment security.
+
+QR-based authentication bridge for Smart TV apps: user logs in on phone, TV receives authenticated cookies.
 
 ## Table of Contents
 
-- [Preview](#preview)
+- [Overview](#overview)
 - [How It Works](#how-it-works)
 - [Features](#features)
 - [Quick Start](#quick-start)
-- [API Endpoints](#api-endpoints)
+- [API](#api)
 - [Environment Variables](#environment-variables)
+- [Security](#security)
+- [Observability](#observability)
+- [Smoke Test](#smoke-test)
 - [Project Structure](#project-structure)
-- [Docker Services](#docker-services)
-- [Integration with Smart TV App](#integration-with-smart-tv-app)
-- [Security Notes](#security-notes)
 - [License](#license)
 
-A lightweight server for authenticating HDRezka accounts on Smart TV via QR code scanning.
+## Overview
 
-## Preview
-
-![QR Code Example](public/rezka-tv-qr.jpg)
+- Server: Express (`index.js`)
+- Reverse proxy: Nginx (`nginx/default.conf.template`)
+- Runtime in Docker image: Bun (`Dockerfile`)
+- Session storage: in-memory (token TTL = 5 minutes)
 
 ## How It Works
 
-```text
-┌─────────────┐     1. Create session        ┌─────────────┐
-│             │ ───────────────────────────► │             │
-│   Smart TV  │   POST { host: "hdrezka.ag" }│   Server    │
-│             │ ◄─────────────────────────── │             │
-└─────────────┘     2. Return token          └─────────────┘
-                                                        │
-      ┌─────────────────────────────────────────────────┘
-      │ 3. Display QR code with token
-      ▼
-┌─────────────┐     4. Open auth page       ┌─────────────┐
-│             │ ─────────────────────────►  │             │
-│  Smartphone │     5. Submit credentials   │   Server    │
-│             │ ◄─────────────────────────  │             │
-└─────────────┘     6. Login to HDRezka     └─────────────┘
-                                                        │
-      ┌─────────────────────────────────────────────────┘
-      │ 7. Store cookies in session
-      ▼
-┌─────────────┐     8. Poll for status      ┌─────────────┐
-│             │ ─────────────────────────►  │             │
-│   Smart TV  │     9. Return cookies       │   Server    │
-│             │ ◄─────────────────────────  │             │
-└─────────────┘                             └─────────────┘
+```mermaid
+flowchart LR
+    TV["Smart TV App"] -->|"POST /session/create"| API["QR Auth Server"]
+    API -->|"token"| TV
+    TV -->|"QR: /auth?t=token"| PHONE["Phone Browser"]
+    PHONE -->|"POST /session/submit"| API
+    API -->|"login to mirror"| MIRROR["Rezka / HDRezka mirror"]
+    TV -->|"GET /session/check?t=token"| API
+    API -->|"status + cookies"| TV
 ```
-
-### Detailed Flow
-
-1. **Create session**: The Smart TV app sends a POST request to `/session/create` with the preferred HDRezka host.
-2. **Return token**: The server initializes a new session with a 5-minute TTL and returns a unique 16-byte hex token.
-3. **Display QR code with token**: The Smart TV application generates and displays a QR Code containing the auth URL: `https://your-domain.com/auth?t={token}`.
-4. **Open auth page**: The user scans the QR code with their smartphone, which opens the mobile-friendly web authentication page.
-5. **Submit credentials**: The user fills in their HDRezka login and password and submits the form (POST to `/session/submit`).
-6. **Login to HDRezka**: The server sends a background request to the specified HDRezka host, handling CSRF tokens and logging the user in.
-7. **Store cookies in session**: Upon successful authentication, the server securely stores the returned HDRezka session cookies in its own temporary session storage.
-8. **Poll for status**: Meanwhile, the Smart TV app continuously polls `/session/check?t={token}` every 2 seconds.
-9. **Return cookies**: Once the server sees the auth was successful (`status: "done"`), it returns the saved cookies to the Smart TV, which then apply them to the TV player's internal web engine or API requests. The token is immediately deleted from the server.
 
 ## Features
 
-- QR code authentication for HDRezka on Smart TV
-- Dynamic host selection (supports different HDRezka mirrors)
-- **Advanced Rate Limiting**: Multi-layered protection via Nginx (`limit_req`, `limit_conn`) and Express.js to prevent brute-force and DDoS attacks.
-- **Bot Protection**: Nginx configuration blocks known malicious user-agents (e.g., sqlmap, nmap, masscan).
-- Session-based flow with 5-minute TTL and automatic cleanup
-- Automatic Nginx log rotation (7 days retention with compression)
-- **Privacy First**: User logins and emails are masked in application logs.
-- Modern, responsive UI for auth and custom error pages
-- Docker support with Bun runtime
-- Protected Nginx reverse proxy (configured for CloudFlare Full/Strict SSL + SOPS encryption)
-- **Hardened Security Headers**: Enforces HSTS, CSP, X-Frame-Options, and more.
-- **Dynamic Repository Route**: A dedicated `/webos/*` fast-redirects any request directly to the public GitHub repository for WebOS applications parsing (e.g. `/webos/repository.json`).
+- QR login flow for Smart TV.
+- Mirror-aware auth with fallback (`MIRROR_FALLBACKS`).
+- Host policy validation (public FQDN + keyword/regex policy).
+- CSRF extraction fallback from hidden input and JS var.
+- Success detection for JSON success and redirect/non-JSON + auth-cookie.
+- Mandatory post-login session verification (`GET /` + user marker checks).
+- Rich error contract: `error`, `error_code`, `message`, `host`, `phase`.
+- Security hardening: `helmet`, strict JSON parsing with size limit, anti-bruteforce (`ip+login` window), per-token limits and in-flight lock, `no-store` cache headers for sensitive routes.
+- Structured JSON logs + request correlation (`X-Request-ID`).
+- Health endpoints and Prometheus metrics.
 
 ## Quick Start
 
-### Using Bun (local development)
-
-```bash
-bun install
-bun run start
-```
-
-### Using Node.js
+### Local (Node.js)
 
 ```bash
 npm install
 npm start
 ```
 
-### Using Docker (production)
-
-#### Step 0: Install dependencies & configure firewall
-
-On a fresh server, you need to install essential packages (including `make` and `docker`) and configure the UFW firewall and fail2ban.
+### Local (Bun)
 
 ```bash
-# 1. Install dependencies
-bash scripts/setup-deps.sh
-
-# 2. Configure UFW firewall (Run as root or with sudo)
-make setup-ufw
-
-# 3. Configure fail2ban (Run as root or with sudo)
-make setup-fail2ban
-
-# 4. Configure logrotate for Nginx (Run as root or with sudo)
-make setup-logrotate
+bun install
+bun run start
 ```
 
-#### Step 1: Initialize SOPS and generate Age key
+### Docker
 
 ```bash
-make sops-init
-# Update .sops.yaml with the generated public key
+docker compose up -d --build
 ```
 
-#### Step 2: Add and encrypt your domain certificates
-
-Obtain your origin certificates from Cloudflare (Origin CA).
-Save them as:
-
-- `certs/crt.pem`
-- `certs/crt.key`
-
-Encrypt them to safely commit into the repository:
+### Useful Make Commands
 
 ```bash
-make sops-enc
+make help
 ```
 
-#### Step 3: Create .env file
+Common targets:
 
-```bash
-cp .env-example .env
-vim .env  # Set DOMAIN
-```
+- `make up`
+- `make down`
+- `make restart`
+- `make restart-app`
+- `make logs`
+- `make deploy`
 
-#### Step 4: Start services
+## API
 
-```bash
-make deploy
-```
+### Endpoints
 
-Server will be available at `http://your-domain.com` (or `https://` if proxied via CloudFlare).
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `POST` | `/session/create` | Create session, returns token |
+| `POST` | `/session/submit` | Submit credentials from phone |
+| `GET` | `/session/check?t=<token>` | Poll session status |
+| `GET` | `/auth?t=<token>` | Mobile auth page |
+| `GET` | `/health/live` | Liveness probe |
+| `GET` | `/health/ready` | Readiness probe (mirror egress) |
+| `GET` | `/metrics` | Prometheus metrics |
 
-#### Available Make Commands
+### `POST /session/create`
 
-| Command                | Description                                     |
-| ---------------------- | ----------------------------------------------- |
-| `make help`            | Show all available commands                     |
-| `make up`              | Start all services                              |
-| `make down`            | Stop all services                               |
-| `make restart`         | Restart nginx                                   |
-| `make restart-app`     | Rebuild and restart the Node.js API             |
-| `make logs`            | Show nginx logs                                 |
-| `make sops-init`       | Generate new age key for SOPS                   |
-| `make sops-enc`        | Encrypt origin certificates                     |
-| `make sops-dec`        | Decrypt certificates for Nginx                  |
-| `make setup-ufw`       | Auto-configure UFW firewall                     |
-| `make setup-fail2ban`  | Auto-configure fail2ban rules                   |
-| `make setup-logrotate` | Install nginx logrotate configuration           |
-| `make logrotate-check` | Dry-run logrotate (no changes, just validation) |
-| `make logrotate-run`   | Force logrotate right now (for testing)         |
-| `make deploy`          | Full deploy: decrypt certs & start services     |
-
-## API Endpoints
-
-| Method | Endpoint                   | Description                                  |
-| ------ | -------------------------- | -------------------------------------------- |
-| `POST` | `/session/create`          | Create new auth session, returns `{ token }` |
-| `GET`  | `/session/check?t=<token>` | Check session status                         |
-| `POST` | `/session/submit`          | Submit credentials from smartphone           |
-| `GET`  | `/auth?t=<token>`          | Auth page for smartphone (QR target)         |
-| `GET`  | `/webos/*`                 | Redirects to WebOS repository files          |
-
-### POST /session/create
+Request:
 
 ```json
-// Request (optional body)
-{ "host": "hdrezka.ag" }
+{ "host": "hdrezka.sb" }
+```
 
-// Response
+Success response:
+
+```json
 { "token": "a1b2c3d4e5f6..." }
 ```
 
-### POST /session/submit
+### `POST /session/submit`
+
+Request:
 
 ```json
-// Request
-{ "token": "a1b2c3d4...", "login": "user@example.com", "password": "secret" }
-
-// Response
-{ "success": true }
+{ "token": "a1b2c3...", "login": "user@example.com", "password": "secret" }
 ```
 
-### Session Status Response
+Success response:
 
 ```json
-{ "status": "pending" }
-{ "status": "done", "cookies": "dle_user_id=...; dle_password=..." }
-{ "status": "error", "error": "Invalid credentials" }
+{ "success": true, "host": "hdrezka.sb", "phase": "done" }
+```
+
+Error response:
+
+```json
+{
+  "success": false,
+  "error": "login_failed",
+  "error_code": "login_failed",
+  "message": "Неверный логин или пароль",
+  "host": "hdrezka.sb",
+  "phase": "login_post_credentials"
+}
+```
+
+### `GET /session/check`
+
+Possible responses:
+
+```json
+{ "status": "pending", "host": "hdrezka.sb", "phase": "login_get_page" }
+```
+
+```json
+{
+  "status": "error",
+  "error": "timeout",
+  "error_code": "timeout",
+  "message": "Время ожидания истекло",
+  "host": "hdrezka.sb",
+  "phase": "login_get_page"
+}
+```
+
+```json
+{ "status": "done", "cookies": "dle_user_id=...; dle_password=...", "host": "hdrezka.sb", "phase": "done" }
+```
+
+```json
 { "status": "expired" }
 ```
 
+### Error Codes
+
+| Code | Meaning |
+| --- | --- |
+| `csrf_missing` | Mirror expects CSRF token but it was not extracted |
+| `login_failed` | Invalid credentials or auth verification failed |
+| `mirror_unreachable` | Mirror unavailable / network resolution failure |
+| `timeout` | Upstream mirror request timed out |
+| `invalid_host` | Host rejected by host security policy |
+| `rate_limited` | Request throttled by app/nginx limits |
+
 ## Environment Variables
 
-| Variable       | Default      | Description                    |
-| -------------- | ------------ | ------------------------------ |
-| `PORT`         | `3000`       | Server port (internal)         |
-| `HDREZKA_HOST` | `hdrezka.ag` | Default HDRezka host for login |
-| `DOMAIN`       | —            | Your domain for nginx routing  |
+### App
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `PORT` | `3000` | App port |
+| `HDREZKA_HOST` | `hdrezka.ag` | Default preferred mirror |
+| `AUTH_TIMEOUT_MS` | `10000` | Per upstream request timeout (ms) |
+| `MAX_SUBMIT_FLOW_TIMEOUT_MS` | `20000` | Max total submit flow time (ms) |
+| `JSON_BODY_LIMIT` | `8kb` | Max JSON body size |
+| `MAX_SUBMIT_ATTEMPTS_PER_TOKEN` | `5` | Max submit attempts per token |
+| `MAX_LOGIN_ATTEMPTS_PER_IP_LOGIN` | `10` | Max failed attempts per `ip+login` window |
+| `LOGIN_ATTEMPT_WINDOW_MS` | `600000` | Bruteforce window in ms |
+| `MIRROR_FALLBACKS` | `` | Comma-separated fallback hosts |
+| `ALLOWED_HOST_KEYWORDS` | `rezka,hdrezka,rezk` | Host allow policy by keyword |
+| `ALLOWED_HOST_REGEX` | `` | Optional allow policy regex |
+| `HEALTHCHECK_HOST` | `HDREZKA_HOST` or `hdrezka.sb` | Host for readiness probe |
+| `LOG_PENDING_CHECKS` | `0` | `1` enables verbose pending polling logs |
+
+### Nginx / Compose
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `DOMAIN` | — | Public domain used by nginx template |
+
+## Security
+
+- Strict host validation for `/session/create`: rejects IPs, localhost-like, malformed hostnames, and allows only hosts matching policy (`ALLOWED_HOST_KEYWORDS` / `ALLOWED_HOST_REGEX`).
+- Token format validation (`32`-char hex).
+- Single-use session semantics with in-flight lock.
+- Session TTL: 5 minutes.
+- Per-token and per `ip+login` throttling.
+- `helmet` enabled at app layer.
+- Strict JSON parser + graceful 400/413 error handling.
+- Sensitive routes use `Cache-Control: no-store`.
+- Login/email masked in logs.
+
+## Observability
+
+- App logs are JSON and include `request_id`, `event`, `host`, `phase`, `error_code`.
+- Nginx access logs are JSON and include `$request_id`.
+- `X-Request-ID` is propagated: nginx -> app -> client.
+- `/metrics` exports uptime gauge, submit counter, auth result counters by `host/result`, and auth phase duration sum/count.
+
+<details>
+<summary>Example log event</summary>
+
+```json
+{
+  "ts": "2026-04-03T13:52:33.900Z",
+  "level": "info",
+  "event": "auth.success",
+  "request_id": "10193992-c797-4ba7-88f8-7ed96f71ae60",
+  "token": "7553c71f...",
+  "host": "hdrezka.sb",
+  "login": "jo*****@m***.ru"
+}
+```
+
+</details>
+
+## Smoke Test
+
+Run local smoke checks:
+
+```bash
+./scripts/smoke.sh
+```
+
+If `REZKATV_USERNAME` and `REZKATV_PASSWORD` are set, the script also validates successful auth.
 
 ## Project Structure
 
 ```text
 rezkatv-qr/
-├── certs/                   # Directory for SSL certificates
-│   ├── enc.crt.key          # SOPS-encrypted private key
-│   └── enc.crt.pem          # SOPS-encrypted public cert
+├── certs/
+│   ├── enc.crt.key
+│   └── enc.crt.pem
 ├── nginx/
-│   ├── default.conf.template # Nginx reverse proxy configuration
-│   └── logrotate.conf       # Log rotation configuration
+│   ├── default.conf.template
+│   └── logrotate.conf
 ├── public/
-│   ├── auth.html            # Mobile auth page
-│   ├── error.html           # Custom error pages template
-│   ├── icon.png             # Web app icon
-│   └── rezka-tv-qr.jpg      # Preview image (plus others)
-├── scripts/                 # Server setup and deployment scripts
+│   ├── auth.html
+│   ├── error.html
+│   ├── icon.png
+│   ├── rezka-tv-main-error.jpg
+│   ├── rezka-tv-qr-error.jpg
+│   └── rezka-tv-qr.jpg
+├── scripts/
+│   ├── smoke.sh
 │   ├── setup-deps.sh
 │   ├── setup-fail2ban.sh
 │   └── setup-ufw.sh
-├── .env-example             # Environment variables template
-├── .gitignore               # Git ignored files
-├── .sops.yaml               # SOPS age configuration
-├── docker-compose.yml       # Docker Compose (app + nginx)
-├── Dockerfile               # Docker image with Bun
-├── index.js                 # Express server with session management
-├── LICENSE                  # MIT License
-├── Makefile                 # Deploy automation commands
-├── package.json             # Project metadata
-└── README.md                # This file
+├── bun.lock
+├── docker-compose.yml
+├── Dockerfile
+├── index.js
+├── LICENSE
+├── Makefile
+├── package-lock.json
+├── package.json
+└── README.md
 ```
-
-## Docker Services
-
-| Service | Description                             |
-| ------- | --------------------------------------- |
-| `app`   | Bun server on port 3000 (internal)      |
-| `nginx` | Reverse proxy on ports 80, 443 with SSL |
-
-## Integration with Smart TV App
-
-### Step 1: Create Session
-
-```javascript
-const res = await fetch("https://your-domain.com/session/create", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ host: "hdrezka.ag" }),
-});
-const { token } = await res.json();
-```
-
-### Step 2: Generate QR Code
-
-```javascript
-const authUrl = `https://your-domain.com/auth?t=${token}`;
-// Display this URL as QR code on TV
-```
-
-### Step 3: Poll for Status
-
-```javascript
-const pollInterval = setInterval(async () => {
-  const res = await fetch(`https://your-domain.com/session/check?t=${token}`);
-  const data = await res.json();
-
-  if (data.status === "done") {
-    clearInterval(pollInterval);
-    // Use data.cookies for HDRezka API calls
-  } else if (data.status === "error" || data.status === "expired") {
-    clearInterval(pollInterval);
-    // Handle error or refresh QR
-  }
-}, 2000);
-```
-
-## Security Notes
-
-- Sessions expire after 5 minutes (TTL: 300000ms)
-- Tokens are single-use (deleted after successful auth)
-- Automatic cleanup removes expired sessions every 60 seconds
-- **Rate-Limiting**: The application limits session creation (5/min per IP) and authentication attempts (10/min per IP) to prevent abuse. Nginx adds an additional layer of request and connection limiting.
-- **Bot Blocking**: Nginx actively denies access to known malicious user agents.
-- **Data Privacy**: Sensetive information like user logins/emails are masked in the server logs (e.g., `us***@e***.com`).
-- Nginx logs are rotated daily, compressed, and retained for 7 days
-- Credentials are transmitted over HTTPS to HDRezka
-- Production setup uses Cloudflare's Strict/Full SSL with encrypted origin certificates via SOPS
-- **Strict Host Routing**: Nginx automatically redirects unknown hosts or direct IP accesses to the official HTTPS `DOMAIN`, protecting against IP scanning.
-- **Security Headers**: Nginx is configured with strict security headers, including HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, and Content-Security-Policy (CSP).
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file.
+MIT — see [LICENSE](LICENSE).

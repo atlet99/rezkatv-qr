@@ -2,6 +2,7 @@
 
 const express = require('express');
 const rateLimit = require('express-rate-limit');
+const helmet  = require('helmet');
 const https   = require('https');
 const zlib    = require('zlib');
 const path    = require('path');
@@ -11,8 +12,10 @@ const { URL } = require('url');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
+const JSON_BODY_LIMIT = process.env.JSON_BODY_LIMIT || '8kb';
 
 app.set('trust proxy', 1); // Trust first proxy (nginx)
+app.disable('x-powered-by');
 
 // Utility to mask login/email (e.g. user@email.com -> us***@e***.com, login -> lo***)
 function maskLogin(login) {
@@ -41,7 +44,17 @@ function log(level, event, data = {}) {
   else console.log(line);
 }
 
-app.use(express.json());
+app.use(helmet({
+  contentSecurityPolicy: false,
+  hsts: false,
+  frameguard: false,
+  referrerPolicy: false,
+}));
+app.use(express.json({
+  limit: JSON_BODY_LIMIT,
+  strict: true,
+  type: 'application/json',
+}));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use((req, res, next) => {
   if (req.path.startsWith('/session/')) {
@@ -108,6 +121,7 @@ const ALLOWED_HOST_REGEX_RAW = (process.env.ALLOWED_HOST_REGEX || '').trim();
 const BLOCKED_HOST_TLDS = new Set(['local', 'localhost', 'internal', 'test', 'example', 'invalid', 'home', 'lan']);
 const MAX_LOGIN_ATTEMPTS_PER_IP_LOGIN = Number.parseInt(process.env.MAX_LOGIN_ATTEMPTS_PER_IP_LOGIN || '10', 10) || 10;
 const LOGIN_ATTEMPT_WINDOW_MS = Number.parseInt(process.env.LOGIN_ATTEMPT_WINDOW_MS || String(10 * 60 * 1000), 10) || 10 * 60 * 1000;
+const MAX_SUBMIT_FLOW_TIMEOUT_MS = Number.parseInt(process.env.MAX_SUBMIT_FLOW_TIMEOUT_MS || '20000', 10) || 20000;
 
 const ERROR_MESSAGES = {
   csrf_missing: 'Не найден CSRF-токен для входа',
@@ -227,6 +241,16 @@ function clearLoginFailures(ip, login) {
   loginAttemptBuckets.delete(key);
 }
 
+function hasUnsafeInputChars(value) {
+  const text = String(value || '');
+  if (/[\r\n\t]/.test(text)) return true;
+  try {
+    return /[\p{Cc}\p{Cf}]/u.test(text);
+  } catch {
+    return false;
+  }
+}
+
 function isValidToken(token) {
   return /^[a-f0-9]{32}$/i.test(String(token || ''));
 }
@@ -254,6 +278,24 @@ setInterval(() => {
     }
   }
 }, 60_000);
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of loginAttemptBuckets.entries()) {
+    cleanupAttemptBucket(entry, now);
+    if (!entry.failures.length) loginAttemptBuckets.delete(key);
+  }
+}, 60_000);
+
+app.use((err, req, res, next) => {
+  if (err && err.type === 'entity.too.large') {
+    return res.status(413).json(makeErrorPayload('login_failed', 'Слишком большой размер запроса'));
+  }
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    return res.status(400).json(makeErrorPayload('login_failed', 'Некорректный JSON в запросе'));
+  }
+  return next(err);
+});
 
 app.get('/health/live', (_req, res) => {
   res.json({ ok: true, status: 'live', ts: nowIso() });
@@ -363,15 +405,17 @@ app.get('/session/check', (req, res) => {
 
 app.post('/session/submit', submitAuthLimiter, async (req, res) => {
   const { token, login, password } = req.body;
+  const loginValue = String(login || '').trim();
+  const passwordValue = String(password || '');
   const clientIp = getClientIp(req);
   metrics.sessionSubmitTotal += 1;
   log('info', 'auth.submit.received', {
     request_id: req.requestId,
     token: (token || '').toString().slice(0, 8) + '...',
-    login_present: Boolean(login),
-    password_present: Boolean(password),
+    login_present: Boolean(loginValue),
+    password_present: Boolean(passwordValue),
   });
-  if (!token || !login || !password) {
+  if (!token || !loginValue || !passwordValue) {
     log('warn', 'auth.submit.rejected', {
       request_id: req.requestId,
       reason: 'missing_fields',
@@ -382,17 +426,20 @@ app.post('/session/submit', submitAuthLimiter, async (req, res) => {
   if (!isValidToken(token)) {
     return res.status(400).json(makeErrorPayload('login_failed', 'Некорректный токен сессии'));
   }
-  if (String(login).length > 256 || String(password).length > 256) {
+  if (loginValue.length > 256 || passwordValue.length > 256) {
     return res.status(400).json(makeErrorPayload('login_failed', 'Некорректная длина логина или пароля'));
   }
-  if (isLoginThrottled(clientIp, login)) {
+  if (hasUnsafeInputChars(loginValue)) {
+    return res.status(400).json(makeErrorPayload('login_failed', 'Логин содержит недопустимые символы'));
+  }
+  if (isLoginThrottled(clientIp, loginValue)) {
     log('warn', 'auth.submit.rejected', {
       request_id: req.requestId,
       reason: 'ip_login_throttled',
       token: token.slice(0, 8) + '...',
       host: sessions[token]?.host || 'unknown',
       ip: sanitizeLogValue(clientIp, 80),
-      login: maskLogin(login),
+      login: maskLogin(loginValue),
     });
     return res.status(429).json(makeErrorPayload('login_failed', 'Слишком много попыток входа. Попробуйте позже.'));
   }
@@ -459,9 +506,11 @@ app.post('/session/submit', submitAuthLimiter, async (req, res) => {
   const mirrors = uniqueMirrors(session.host);
   let lastErr = null;
   let authenticatedHost = session.host;
+  const deadlineAt = Date.now() + MAX_SUBMIT_FLOW_TIMEOUT_MS;
   try {
     let cookies = '';
     for (let i = 0; i < mirrors.length; i += 1) {
+      if (Date.now() >= deadlineAt) throw createAuthError('timeout', 'Submit flow timeout exceeded');
       const host = mirrors[i];
       updateSession(token, { status: 'pending', phase: 'login_get_page', error: null, host });
       log('info', 'auth.attempt.start', {
@@ -474,9 +523,9 @@ app.post('/session/submit', submitAuthLimiter, async (req, res) => {
       });
 
       try {
-        cookies = await loginToHDRezka(host, login, password, (phase) => {
+        cookies = await loginToHDRezka(host, loginValue, passwordValue, (phase) => {
           markPhase(phase, host);
-        });
+        }, deadlineAt);
         authenticatedHost = host;
         closePhase('login_get_page');
         closePhase('login_post_credentials');
@@ -508,12 +557,12 @@ app.post('/session/submit', submitAuthLimiter, async (req, res) => {
     if (!cookies) throw (lastErr || createAuthError('login_failed', 'No cookies after login'));
     metricsIncAuthResult(authenticatedHost, 'success');
     updateSession(token, { status: 'done', phase: 'done', cookies, error: null, host: authenticatedHost, inFlight: false });
-    clearLoginFailures(clientIp, login);
+    clearLoginFailures(clientIp, loginValue);
     log('info', 'auth.success', {
       request_id: req.requestId,
       token: token.slice(0, 8) + '...',
       host: authenticatedHost,
-      login: maskLogin(login),
+      login: maskLogin(loginValue),
     });
     res.json({ success: true, host: authenticatedHost, phase: 'done' });
   } catch (err) {
@@ -521,11 +570,11 @@ app.post('/session/submit', submitAuthLimiter, async (req, res) => {
     const currentHost = sessions[token]?.host || session.host;
     updateSession(token, { status: 'error', error: code, phase: sessions[token]?.phase || 'unknown', inFlight: false, host: currentHost });
     metricsIncAuthResult(currentHost, code);
-    if (code === 'login_failed') recordLoginFailure(clientIp, login);
+    if (code === 'login_failed') recordLoginFailure(clientIp, loginValue);
     log('error', 'auth.error', {
       request_id: req.requestId,
       token: token.slice(0, 8) + '...',
-      login: maskLogin(login),
+      login: maskLogin(loginValue),
       host: currentHost,
       phase: sessions[token]?.phase || 'unknown',
       error_code: code,
@@ -681,12 +730,18 @@ function decodeResponseBody(buffer, contentEncoding, cb) {
   return cb(null, buffer.toString('utf8'));
 }
 
-async function loginToHDRezka(host, login, password, onPhase = () => {}) {
+function getRemainingTimeoutMs(deadlineAt) {
+  if (!deadlineAt) return AUTH_TIMEOUT_MS;
+  return Math.max(1, Math.min(AUTH_TIMEOUT_MS, deadlineAt - Date.now()));
+}
+
+async function loginToHDRezka(host, login, password, onPhase = () => {}, deadlineAt = 0) {
   onPhase('login_get_page');
   const getRes = await requestHtml(host, {
     path: '/',
     method: 'GET',
     headers: { 'User-Agent': 'Mozilla/5.0 (SmartTV; WebOS)' },
+    timeoutMs: getRemainingTimeoutMs(deadlineAt),
   });
 
   if (getRes.statusCode >= 500 || getRes.statusCode === 0) {
@@ -719,6 +774,7 @@ async function loginToHDRezka(host, login, password, onPhase = () => {}) {
       'X-Requested-With': 'XMLHttpRequest',
     },
     body: postData,
+    timeoutMs: getRemainingTimeoutMs(deadlineAt),
   });
 
   if (postRes.statusCode >= 500 || postRes.statusCode === 0) {
@@ -752,6 +808,7 @@ async function loginToHDRezka(host, login, password, onPhase = () => {}) {
       'User-Agent': 'Mozilla/5.0 (SmartTV; WebOS)',
       'Referer': `https://${host}/`,
     },
+    timeoutMs: getRemainingTimeoutMs(deadlineAt),
   });
 
   if (verifyRes.statusCode >= 500 || verifyRes.statusCode === 0) {
