@@ -364,12 +364,15 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ token: TOKEN, login, password: pass }),
           });
-          const data = await res.json();
+          const contentType = (res.headers.get("content-type") || "").toLowerCase();
+          const isJson = contentType.includes("application/json");
+          const data = isJson ? await res.json() : null;
 
-          if (data.success) {
+          if (res.ok && data && data.success) {
             setStatus("✓ Телевизор авторизован! Можно закрыть страницу.", "ok");
           } else {
-            setStatus(data.error || "Неверный логин или пароль", "err");
+            const serverError = data?.error || `Сервер вернул ошибку (${res.status})`;
+            setStatus(serverError, "err");
             btn.disabled = false;
           }
         } catch (e) {

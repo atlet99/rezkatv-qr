@@ -29,6 +29,17 @@ function maskLogin(login) {
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    if (!req.path.startsWith('/session/')) return;
+    const ip = req.headers['cf-connecting-ip'] || req.headers['x-real-ip'] || req.ip || req.socket.remoteAddress || '-';
+    const safeUrl = req.originalUrl.replace(/([?&]t=)[a-f0-9]{8,}/i, '$1***');
+    const ua = (req.headers['user-agent'] || '-').toString().slice(0, 120);
+    console.log(`[HTTP] ${req.method} ${safeUrl} -> ${res.statusCode} ${Date.now() - start}ms ip=${ip} ua="${ua}"`);
+  });
+  next();
+});
 
 // Rate limits
 const createSessionLimiter = rateLimit({
@@ -47,6 +58,7 @@ const sessions = {};
 const TOKEN_TTL = 5 * 60 * 1000;
 const AUTH_TIMEOUT_MS = Number.parseInt(process.env.AUTH_TIMEOUT_MS || '10000', 10) || 10000;
 const AUTH_ERROR_CODES = new Set(['csrf_missing', 'login_failed', 'mirror_unreachable', 'timeout']);
+const LOG_PENDING_CHECKS = process.env.LOG_PENDING_CHECKS === '1';
 
 setInterval(() => {
   const now = Date.now();
@@ -71,32 +83,48 @@ app.post('/session/create', createSessionLimiter, (req, res) => {
 });
 
 app.get('/session/check', (req, res) => {
+  const token = (req.query.t || '').toString();
   const session = sessions[req.query.t];
-  if (!session) return res.json({ status: 'expired' });
+  if (!session) {
+    console.warn(`[SessionCheck] expired token=${token.slice(0, 8)}...`);
+    return res.json({ status: 'expired' });
+  }
   if (session.status === 'done') {
     const { cookies, host, phase } = session;
     delete sessions[req.query.t];
     console.log(`[Session] Handed over cookies for token: ${req.query.t.slice(0, 8)}...`);
     return res.json({ status: 'done', cookies, host, phase });
   }
-  if (session.status === 'error') return res.json({ status: 'error', error: session.error, host: session.host, phase: session.phase || 'unknown' });
+  if (session.status === 'error') {
+    console.warn(`[SessionCheck] error token=${token.slice(0, 8)}... host=${session.host} phase=${session.phase || 'unknown'} reason=${session.error}`);
+    return res.json({ status: 'error', error: session.error, host: session.host, phase: session.phase || 'unknown' });
+  }
+  if (LOG_PENDING_CHECKS) {
+    console.log(`[SessionCheck] pending token=${token.slice(0, 8)}... host=${session.host} phase=${session.phase || 'unknown'}`);
+  }
   res.json({ status: 'pending', host: session.host, phase: session.phase || 'unknown' });
 });
 
 app.post('/session/submit', submitAuthLimiter, async (req, res) => {
   const { token, login, password } = req.body;
-  if (!token || !login || !password)
+  console.log(`[Auth] /session/submit token=${(token || '').toString().slice(0, 8)}... login_present=${Boolean(login)} password_present=${Boolean(password)}`);
+  if (!token || !login || !password) {
+    console.warn(`[Auth] Rejecting submit: missing_fields token=${(token || '').toString().slice(0, 8)}...`);
     return res.status(400).json({ success: false, error: 'Не все поля заполнены' });
+  }
 
   const session = sessions[token];
-  if (!session)
+  if (!session) {
+    console.warn(`[Auth] Rejecting submit: session_expired token=${token.slice(0, 8)}...`);
     return res.status(400).json({ success: false, error: 'QR-код истёк, обновите его на телевизоре' });
+  }
 
   try {
     updateSession(token, { status: 'pending', phase: 'login_get_page', error: null });
     console.log(`[Auth] Attempting login for ${maskLogin(login)} on ${session.host} (token: ${token.slice(0, 8)}...)`);
     const cookies = await loginToHDRezka(session.host, login, password, (phase) => {
       updateSession(token, { phase });
+      console.log(`[Auth] Phase=${phase} host=${session.host} token=${token.slice(0, 8)}...`);
     });
     updateSession(token, { status: 'done', phase: 'done', cookies, error: null });
     console.log(`[Auth] Success for ${maskLogin(login)} (token: ${token.slice(0, 8)}...)`);
@@ -104,7 +132,7 @@ app.post('/session/submit', submitAuthLimiter, async (req, res) => {
   } catch (err) {
     const code = normalizeAuthError(err);
     updateSession(token, { status: 'error', error: code, phase: sessions[token]?.phase || 'unknown' });
-    console.error(`[Auth] Error for ${maskLogin(login)}: ${code} (${err.message}) (token: ${token.slice(0, 8)}...)`);
+    console.error(`[Auth] Error for ${maskLogin(login)}: code=${code} detail="${err.message}" syscode=${err.code || 'n/a'} host=${session.host} phase=${sessions[token]?.phase || 'unknown'} token=${token.slice(0, 8)}...`);
     res.json({ success: false, error: code });
   }
 });
