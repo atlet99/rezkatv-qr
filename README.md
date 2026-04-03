@@ -1,5 +1,7 @@
 # RezkaTV QR Auth Server
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/I2I81X6E3R)
+
 > [!WARNING]
 > This project is an **independent, non-commercial development** and is not affiliated with the "HDRezka" online cinema (hdrezka.ag), its administration, or its owners in any way. The application does not distribute any content; it merely provides a tool for authenticating on the site from Smart TVs.
 
