@@ -3,6 +3,7 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const https   = require('https');
+const zlib    = require('zlib');
 const path    = require('path');
 const crypto  = require('crypto');
 
@@ -44,6 +45,8 @@ const submitAuthLimiter = rateLimit({
 
 const sessions = {};
 const TOKEN_TTL = 5 * 60 * 1000;
+const AUTH_TIMEOUT_MS = Number.parseInt(process.env.AUTH_TIMEOUT_MS || '10000', 10) || 10000;
+const AUTH_ERROR_CODES = new Set(['csrf_missing', 'login_failed', 'mirror_unreachable', 'timeout']);
 
 setInterval(() => {
   const now = Date.now();
@@ -62,7 +65,7 @@ app.post('/session/create', createSessionLimiter, (req, res) => {
 
   const token = crypto.randomBytes(16).toString('hex');
   const host  = req.body.host || process.env.HDREZKA_HOST || 'hdrezka.ag';
-  sessions[token] = { status: 'pending', host, createdAt: Date.now() };
+  sessions[token] = { status: 'pending', phase: 'idle', host, createdAt: Date.now() };
   console.log(`[Session] Created token: ${token.slice(0, 8)}... for host: ${host}`);
   res.json({ token });
 });
@@ -71,13 +74,13 @@ app.get('/session/check', (req, res) => {
   const session = sessions[req.query.t];
   if (!session) return res.json({ status: 'expired' });
   if (session.status === 'done') {
-    const { cookies } = session;
+    const { cookies, host, phase } = session;
     delete sessions[req.query.t];
     console.log(`[Session] Handed over cookies for token: ${req.query.t.slice(0, 8)}...`);
-    return res.json({ status: 'done', cookies });
+    return res.json({ status: 'done', cookies, host, phase });
   }
-  if (session.status === 'error') return res.json({ status: 'error', error: session.error });
-  res.json({ status: 'pending' });
+  if (session.status === 'error') return res.json({ status: 'error', error: session.error, host: session.host, phase: session.phase || 'unknown' });
+  res.json({ status: 'pending', host: session.host, phase: session.phase || 'unknown' });
 });
 
 app.post('/session/submit', submitAuthLimiter, async (req, res) => {
@@ -90,15 +93,19 @@ app.post('/session/submit', submitAuthLimiter, async (req, res) => {
     return res.status(400).json({ success: false, error: 'QR-код истёк, обновите его на телевизоре' });
 
   try {
+    updateSession(token, { status: 'pending', phase: 'login_get_page', error: null });
     console.log(`[Auth] Attempting login for ${maskLogin(login)} on ${session.host} (token: ${token.slice(0, 8)}...)`);
-    const cookies = await loginToHDRezka(session.host, login, password);
-    sessions[token] = { ...session, status: 'done', cookies };
+    const cookies = await loginToHDRezka(session.host, login, password, (phase) => {
+      updateSession(token, { phase });
+    });
+    updateSession(token, { status: 'done', phase: 'done', cookies, error: null });
     console.log(`[Auth] Success for ${maskLogin(login)} (token: ${token.slice(0, 8)}...)`);
     res.json({ success: true });
   } catch (err) {
-    sessions[token] = { ...session, status: 'error', error: err.message };
-    console.error(`[Auth] Error for ${maskLogin(login)}: ${err.message} (token: ${token.slice(0, 8)}...)`);
-    res.json({ success: false, error: err.message });
+    const code = normalizeAuthError(err);
+    updateSession(token, { status: 'error', error: code, phase: sessions[token]?.phase || 'unknown' });
+    console.error(`[Auth] Error for ${maskLogin(login)}: ${code} (${err.message}) (token: ${token.slice(0, 8)}...)`);
+    res.json({ success: false, error: code });
   }
 });
 
@@ -108,82 +115,213 @@ app.get('/auth', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'auth.html'));
 });
 
-function loginToHDRezka(host, login, password) {
+function updateSession(token, patch) {
+  if (!sessions[token]) return;
+  sessions[token] = { ...sessions[token], ...patch };
+}
+
+function createAuthError(code, message) {
+  const err = new Error(message || code);
+  err.code = code;
+  return err;
+}
+
+function normalizeAuthError(err) {
+  if (err && AUTH_ERROR_CODES.has(err.code)) return err.code;
+  if (err && (err.code === 'ETIMEDOUT' || err.code === 'ESOCKETTIMEDOUT' || err.code === 'ERR_REQUEST_TIMEOUT')) return 'timeout';
+  if (err && ['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ECONNRESET', 'EHOSTUNREACH'].includes(err.code)) return 'mirror_unreachable';
+  return 'login_failed';
+}
+
+function extractCookies(headers) {
+  return (headers['set-cookie'] || []).map(c => c.split(';')[0]).join('; ');
+}
+
+function mergeCookies(...cookieStrings) {
+  const jar = new Map();
+  for (const cookieString of cookieStrings.filter(Boolean)) {
+    for (const part of cookieString.split(';')) {
+      const trimmed = part.trim();
+      if (!trimmed || !trimmed.includes('=')) continue;
+      const eq = trimmed.indexOf('=');
+      const key = trimmed.slice(0, eq).trim();
+      const value = trimmed.slice(eq + 1).trim();
+      jar.set(key, value);
+    }
+  }
+  return [...jar.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
+}
+
+function hasAuthCookie(cookieString) {
+  return /(^|;\s*)(member_id|member_hash|member_user_id|dle_user_id|dle_password)=/i.test(cookieString || '');
+}
+
+function hasVerifiedMemberUserId(body, cookieString) {
+  const bodyPatterns = [
+    /id=(['"])member_user_id\1[^>]*value=(['"])(\d+)\2/i,
+    /value=(['"])(\d+)\1[^>]*id=(['"])member_user_id\3/i,
+    /\bmember_user_id\s*[:=]\s*['"]?(\d+)['"]?/i,
+  ];
+  let bodyMemberId = 0;
+  for (const pattern of bodyPatterns) {
+    const match = body.match(pattern);
+    if (!match) continue;
+    const numericGroup = match.find(part => /^\d+$/.test(part || ''));
+    if (numericGroup) {
+      bodyMemberId = parseInt(numericGroup, 10);
+      break;
+    }
+  }
+
+  const cookieMatch = (cookieString || '').match(/(?:^|;\s*)member_user_id=(\d+)/i);
+  const cookieMemberId = cookieMatch ? parseInt(cookieMatch[1], 10) : 0;
+
+  return Number.isFinite(bodyMemberId) && bodyMemberId > 0
+    || Number.isFinite(cookieMemberId) && cookieMemberId > 0;
+}
+
+function extractCsrfToken(body) {
+  const hiddenInput = body.match(/name=(['"])dle_login_hash\1[^>]*value=(['"])([^'"]+)\2/i)
+    || body.match(/value=(['"])([^'"]+)\1[^>]*name=(['"])dle_login_hash\3/i);
+  if (hiddenInput) return hiddenInput[2] || hiddenInput[3] || '';
+
+  const jsVar = body.match(/var\s+dle_login_hash\s*=\s*['"]([^'"]+)['"]/i);
+  return jsVar ? jsVar[1] : '';
+}
+
+function isCsrfTokenExpected(body) {
+  return /name=(['"])dle_login_hash\1/i.test(body)
+    || /\bdle_login_hash\s*=\s*['"][^'"]+['"]/i.test(body);
+}
+
+function requestHtml(host, { path: reqPath, method = 'GET', headers = {}, body = '' }) {
   return new Promise((resolve, reject) => {
-    const getReq = https.request({
+    const req = https.request({
       hostname: host,
-      path:     '/',
-      method:   'GET',
-      headers:  { 'User-Agent': 'Mozilla/5.0 (SmartTV; WebOS)' },
+      path: reqPath,
+      method,
+      headers,
       rejectUnauthorized: false,
-      timeout: 10000,
-    }, (getRes) => {
-      const sessionCookies = (getRes.headers['set-cookie'] || [])
-        .map(c => c.split(';')[0]).join('; ');
-
-      let body = '';
-      getRes.on('data', chunk => body += chunk);
-      getRes.on('end', () => {
-        const match     = body.match(/name="dle_login_hash"\s+value="([^"]+)"/);
-        const csrfToken = match ? match[1] : '';
-
-        const postData = new URLSearchParams({
-          login_name:     login,
-          login_password: password,
-          login_not_save: 0,
-          dle_login_hash: csrfToken,
-        }).toString();
-
-        const postReq = https.request({
-          hostname: host,
-          path:     '/ajax/login/',
-          method:   'POST',
-          headers: {
-            'Content-Type':     'application/x-www-form-urlencoded',
-            'Content-Length':   Buffer.byteLength(postData),
-            'Cookie':           sessionCookies,
-            'User-Agent':       'Mozilla/5.0 (SmartTV; WebOS)',
-            'Referer':          `https://${host}/`,
-            'X-Requested-With': 'XMLHttpRequest',
-          },
-          rejectUnauthorized: false,
-          timeout: 10000,
-        }, (postRes) => {
-          let respBody = '';
-          postRes.on('data', chunk => respBody += chunk);
-          postRes.on('end', () => {
-            try {
-              const json = JSON.parse(respBody);
-              if (json.success) {
-                const newCookies = (postRes.headers['set-cookie'] || [])
-                  .map(c => c.split(';')[0]).join('; ');
-                resolve([sessionCookies, newCookies].filter(Boolean).join('; '));
-              } else {
-                reject(new Error(json.error || 'Неверный логин или пароль'));
-              }
-            } catch {
-              reject(new Error('Ошибка ответа от HDRezka'));
-            }
+      timeout: AUTH_TIMEOUT_MS,
+    }, (res) => {
+      const chunks = [];
+      res.on('data', chunk => chunks.push(chunk));
+      res.on('end', () => {
+        const responseBuffer = Buffer.concat(chunks);
+        decodeResponseBody(responseBuffer, res.headers['content-encoding'], (decodeErr, decodedBody) => {
+          if (decodeErr) return reject(decodeErr);
+          resolve({
+            statusCode: res.statusCode || 0,
+            headers: res.headers,
+            body: decodedBody,
           });
         });
-
-        postReq.on('error', err => reject(err));
-        postReq.on('timeout', () => {
-          postReq.destroy();
-          reject(new Error('Время ожидания ответа от HDRezka (POST) истекло'));
-        });
-        postReq.write(postData);
-        postReq.end();
       });
     });
 
-    getReq.on('error', err => reject(err));
-    getReq.on('timeout', () => {
-      getReq.destroy();
-      reject(new Error('Время ожидания ответа от HDRezka (GET) истекло'));
+    req.on('error', reject);
+    req.on('timeout', () => {
+      const timeoutErr = new Error(`Request timeout: ${method} ${reqPath}`);
+      timeoutErr.code = 'ETIMEDOUT';
+      req.destroy(timeoutErr);
     });
-    getReq.end();
+    if (body) req.write(body);
+    req.end();
   });
+}
+
+function decodeResponseBody(buffer, contentEncoding, cb) {
+  const encoding = (contentEncoding || '').toLowerCase();
+  if (!encoding || encoding === 'identity') return cb(null, buffer.toString('utf8'));
+  if (encoding.includes('gzip')) return zlib.gunzip(buffer, (err, out) => cb(err, err ? null : out.toString('utf8')));
+  if (encoding.includes('deflate')) return zlib.inflate(buffer, (err, out) => cb(err, err ? null : out.toString('utf8')));
+  if (encoding.includes('br')) return zlib.brotliDecompress(buffer, (err, out) => cb(err, err ? null : out.toString('utf8')));
+  return cb(null, buffer.toString('utf8'));
+}
+
+async function loginToHDRezka(host, login, password, onPhase = () => {}) {
+  onPhase('login_get_page');
+  const getRes = await requestHtml(host, {
+    path: '/',
+    method: 'GET',
+    headers: { 'User-Agent': 'Mozilla/5.0 (SmartTV; WebOS)' },
+  });
+
+  if (getRes.statusCode >= 500 || getRes.statusCode === 0) {
+    throw createAuthError('mirror_unreachable', `Mirror unavailable on GET / (${getRes.statusCode})`);
+  }
+
+  const sessionCookies = extractCookies(getRes.headers);
+  const csrfToken = extractCsrfToken(getRes.body);
+  const isCsrfExpected = isCsrfTokenExpected(getRes.body);
+  if (!csrfToken && isCsrfExpected) throw createAuthError('csrf_missing', 'dle_login_hash declared but not extracted');
+
+  const loginParams = {
+    login_name: login,
+    login_password: password,
+    login_not_save: 0,
+  };
+  if (csrfToken) loginParams.dle_login_hash = csrfToken;
+  const postData = new URLSearchParams(loginParams).toString();
+
+  onPhase('login_post_credentials');
+  const postRes = await requestHtml(host, {
+    path: '/ajax/login/',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Content-Length': Buffer.byteLength(postData),
+      'Cookie': sessionCookies,
+      'User-Agent': 'Mozilla/5.0 (SmartTV; WebOS)',
+      'Referer': `https://${host}/`,
+      'X-Requested-With': 'XMLHttpRequest',
+    },
+    body: postData,
+  });
+
+  if (postRes.statusCode >= 500 || postRes.statusCode === 0) {
+    throw createAuthError('mirror_unreachable', `Mirror unavailable on POST /ajax/login/ (${postRes.statusCode})`);
+  }
+
+  const postCookies = extractCookies(postRes.headers);
+  const cookiesAfterPost = mergeCookies(sessionCookies, postCookies);
+  const hasAuthAfterPost = hasAuthCookie(cookiesAfterPost);
+  const hasRedirect = Boolean(postRes.headers.location) || [301, 302, 303, 307, 308].includes(postRes.statusCode);
+
+  let parsedPostJson = null;
+  try {
+    parsedPostJson = JSON.parse(postRes.body);
+  } catch {
+    parsedPostJson = null;
+  }
+
+  const isJsonSuccess = parsedPostJson && parsedPostJson.success === true;
+  const isRedirectOrNonJsonWithAuth = (hasRedirect || !parsedPostJson) && hasAuthAfterPost;
+  if (!isJsonSuccess && !isRedirectOrNonJsonWithAuth) {
+    throw createAuthError('login_failed', parsedPostJson?.error || 'Login rejected by mirror');
+  }
+
+  onPhase('login_verify_session');
+  const verifyRes = await requestHtml(host, {
+    path: '/',
+    method: 'GET',
+    headers: {
+      'Cookie': cookiesAfterPost,
+      'User-Agent': 'Mozilla/5.0 (SmartTV; WebOS)',
+      'Referer': `https://${host}/`,
+    },
+  });
+
+  if (verifyRes.statusCode >= 500 || verifyRes.statusCode === 0) {
+    throw createAuthError('mirror_unreachable', `Mirror unavailable on verify GET / (${verifyRes.statusCode})`);
+  }
+
+  const verifyCookies = extractCookies(verifyRes.headers);
+  const finalCookies = mergeCookies(cookiesAfterPost, verifyCookies);
+  const hasMemberUserId = hasVerifiedMemberUserId(verifyRes.body, finalCookies);
+  if (!hasMemberUserId) throw createAuthError('login_failed', 'member_user_id not found after login');
+
+  return finalCookies;
 }
 
 app.listen(PORT, () => console.log(`QR Auth server running on port ${PORT}`));
