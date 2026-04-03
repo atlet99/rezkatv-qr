@@ -2,16 +2,20 @@
 
 const express = require('express');
 const rateLimit = require('express-rate-limit');
+const helmet  = require('helmet');
 const https   = require('https');
 const zlib    = require('zlib');
 const path    = require('path');
 const crypto  = require('crypto');
+const net     = require('net');
 const { URL } = require('url');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
+const JSON_BODY_LIMIT = process.env.JSON_BODY_LIMIT || '8kb';
 
 app.set('trust proxy', 1); // Trust first proxy (nginx)
+app.disable('x-powered-by');
 
 // Utility to mask login/email (e.g. user@email.com -> us***@e***.com, login -> lo***)
 function maskLogin(login) {
@@ -40,8 +44,26 @@ function log(level, event, data = {}) {
   else console.log(line);
 }
 
-app.use(express.json());
+app.use(helmet({
+  contentSecurityPolicy: false,
+  hsts: false,
+  frameguard: false,
+  referrerPolicy: false,
+}));
+app.use(express.json({
+  limit: JSON_BODY_LIMIT,
+  strict: true,
+  type: 'application/json',
+}));
 app.use(express.static(path.join(__dirname, 'public')));
+app.use((req, res, next) => {
+  if (req.path.startsWith('/session/')) {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  }
+  next();
+});
 app.use((req, res, next) => {
   const reqIdHeader = (req.headers['x-request-id'] || '').toString().trim();
   const requestId = reqIdHeader || crypto.randomUUID();
@@ -51,9 +73,9 @@ app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
     if (!req.path.startsWith('/session/')) return;
-    const ip = req.headers['cf-connecting-ip'] || req.headers['x-real-ip'] || req.ip || req.socket.remoteAddress || '-';
+    const ip = getClientIp(req);
     const safeUrl = req.originalUrl.replace(/([?&]t=)[a-f0-9]{8,}/i, '$1***');
-    const ua = (req.headers['user-agent'] || '-').toString().slice(0, 120);
+    const ua = sanitizeLogValue(req.headers['user-agent'] || '-', 120);
     log('info', 'http.session.request', {
       request_id: requestId,
       method: req.method,
@@ -91,6 +113,15 @@ const MIRROR_FALLBACKS = (process.env.MIRROR_FALLBACKS || '')
   .split(',')
   .map(s => s.trim().toLowerCase())
   .filter(Boolean);
+const ALLOWED_HOST_KEYWORDS = (process.env.ALLOWED_HOST_KEYWORDS || 'rezka,hdrezka,rezk')
+  .split(',')
+  .map(v => v.trim().toLowerCase())
+  .filter(Boolean);
+const ALLOWED_HOST_REGEX_RAW = (process.env.ALLOWED_HOST_REGEX || '').trim();
+const BLOCKED_HOST_TLDS = new Set(['local', 'localhost', 'internal', 'test', 'example', 'invalid', 'home', 'lan']);
+const MAX_LOGIN_ATTEMPTS_PER_IP_LOGIN = Number.parseInt(process.env.MAX_LOGIN_ATTEMPTS_PER_IP_LOGIN || '10', 10) || 10;
+const LOGIN_ATTEMPT_WINDOW_MS = Number.parseInt(process.env.LOGIN_ATTEMPT_WINDOW_MS || String(10 * 60 * 1000), 10) || 10 * 60 * 1000;
+const MAX_SUBMIT_FLOW_TIMEOUT_MS = Number.parseInt(process.env.MAX_SUBMIT_FLOW_TIMEOUT_MS || '20000', 10) || 20000;
 
 const ERROR_MESSAGES = {
   csrf_missing: 'Не найден CSRF-токен для входа',
@@ -105,6 +136,8 @@ const metrics = {
   phaseDurations: new Map(), // key: host|phase => {count,sumMs}
   sessionSubmitTotal: 0,
 };
+const loginAttemptBuckets = new Map();
+const ALLOWED_HOST_REGEX = compileHostRegex(ALLOWED_HOST_REGEX_RAW);
 
 function metricsIncAuthResult(host, result) {
   const key = `${host}|${result}`;
@@ -123,6 +156,17 @@ function escPromLabel(value) {
   return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
+function getClientIp(req) {
+  return req.headers['cf-connecting-ip'] || req.headers['x-real-ip'] || req.ip || req.socket.remoteAddress || '-';
+}
+
+function sanitizeLogValue(value, maxLen = 160) {
+  return String(value || '')
+    .replace(/[\r\n\t]/g, ' ')
+    .replace(/[^\x20-\x7E]/g, '')
+    .slice(0, maxLen);
+}
+
 function makeErrorPayload(code, messageOverride = null) {
   const message = messageOverride || ERROR_MESSAGES[code] || ERROR_MESSAGES.login_failed;
   return {
@@ -133,12 +177,91 @@ function makeErrorPayload(code, messageOverride = null) {
   };
 }
 
+function compileHostRegex(rawPattern) {
+  if (!rawPattern) return null;
+  try {
+    return new RegExp(rawPattern, 'i');
+  } catch {
+    log('warn', 'config.invalid_allowed_host_regex', { pattern: rawPattern });
+    return null;
+  }
+}
+
+function isAllowedMirror(host) {
+  const normalized = normalizeHost(host);
+  if (!normalized) return false;
+  if (net.isIP(normalized)) return false;
+  if (normalized === 'localhost' || normalized.endsWith('.local') || normalized.endsWith('.internal')) return false;
+  if (!/^[a-z0-9.-]+$/i.test(normalized)) return false;
+  if (normalized.startsWith('.') || normalized.endsWith('.') || normalized.includes('..')) return false;
+
+  const labels = normalized.split('.').filter(Boolean);
+  if (labels.length < 2) return false;
+  const tld = labels[labels.length - 1];
+  if (BLOCKED_HOST_TLDS.has(tld)) return false;
+
+  if (ALLOWED_HOST_REGEX && ALLOWED_HOST_REGEX.test(normalized)) return true;
+  if (!ALLOWED_HOST_KEYWORDS.length) return true;
+  return ALLOWED_HOST_KEYWORDS.some(k => normalized.includes(k));
+}
+
+function cleanupAttemptBucket(entry, now) {
+  const threshold = now - LOGIN_ATTEMPT_WINDOW_MS;
+  while (entry.failures.length && entry.failures[0] < threshold) entry.failures.shift();
+}
+
+function getAttemptKey(ip, login) {
+  return `${sanitizeLogValue(ip, 80)}|${sanitizeLogValue(login, 120).toLowerCase()}`;
+}
+
+function isLoginThrottled(ip, login) {
+  const key = getAttemptKey(ip, login);
+  const now = Date.now();
+  const entry = loginAttemptBuckets.get(key);
+  if (!entry) return false;
+  cleanupAttemptBucket(entry, now);
+  if (!entry.failures.length) {
+    loginAttemptBuckets.delete(key);
+    return false;
+  }
+  return entry.failures.length >= MAX_LOGIN_ATTEMPTS_PER_IP_LOGIN;
+}
+
+function recordLoginFailure(ip, login) {
+  const key = getAttemptKey(ip, login);
+  const now = Date.now();
+  const entry = loginAttemptBuckets.get(key) || { failures: [] };
+  cleanupAttemptBucket(entry, now);
+  entry.failures.push(now);
+  loginAttemptBuckets.set(key, entry);
+}
+
+function clearLoginFailures(ip, login) {
+  const key = getAttemptKey(ip, login);
+  loginAttemptBuckets.delete(key);
+}
+
+function hasUnsafeInputChars(value) {
+  const text = String(value || '');
+  if (/[\r\n\t]/.test(text)) return true;
+  try {
+    return /[\p{Cc}\p{Cf}]/u.test(text);
+  } catch {
+    return false;
+  }
+}
+
+function isValidToken(token) {
+  return /^[a-f0-9]{32}$/i.test(String(token || ''));
+}
+
 function uniqueMirrors(primaryHost) {
   const hosts = [primaryHost, ...MIRROR_FALLBACKS].map(normalizeHost).filter(Boolean);
   const out = [];
   const seen = new Set();
   for (const h of hosts) {
     const normalized = h.toLowerCase();
+    if (!isAllowedMirror(normalized)) continue;
     if (seen.has(normalized)) continue;
     seen.add(normalized);
     out.push(normalized);
@@ -155,6 +278,24 @@ setInterval(() => {
     }
   }
 }, 60_000);
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of loginAttemptBuckets.entries()) {
+    cleanupAttemptBucket(entry, now);
+    if (!entry.failures.length) loginAttemptBuckets.delete(key);
+  }
+}, 60_000);
+
+app.use((err, req, res, next) => {
+  if (err && err.type === 'entity.too.large') {
+    return res.status(413).json(makeErrorPayload('login_failed', 'Слишком большой размер запроса'));
+  }
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    return res.status(400).json(makeErrorPayload('login_failed', 'Некорректный JSON в запросе'));
+  }
+  return next(err);
+});
 
 app.get('/health/live', (_req, res) => {
   res.json({ ok: true, status: 'live', ts: nowIso() });
@@ -217,6 +358,9 @@ app.post('/session/create', createSessionLimiter, (req, res) => {
   if (!host) {
     return res.status(400).json({ error: 'invalid_host', error_code: 'invalid_host', message: 'Некорректный host' });
   }
+  if (!isAllowedMirror(host)) {
+    return res.status(400).json({ error: 'invalid_host', error_code: 'invalid_host', message: 'Host не разрешен политикой безопасности' });
+  }
   sessions[token] = { status: 'pending', phase: 'idle', host, createdAt: Date.now(), submitAttempts: 0, inFlight: false };
   log('info', 'session.created', { token: `${token.slice(0, 8)}...`, host, request_id: req.requestId });
   res.json({ token });
@@ -224,14 +368,15 @@ app.post('/session/create', createSessionLimiter, (req, res) => {
 
 app.get('/session/check', (req, res) => {
   const token = (req.query.t || '').toString();
-  const session = sessions[req.query.t];
+  if (!isValidToken(token)) return res.json({ status: 'expired' });
+  const session = sessions[token];
   if (!session) {
     log('warn', 'session.check.expired', { token: `${token.slice(0, 8)}...`, request_id: req.requestId });
     return res.json({ status: 'expired' });
   }
   if (session.status === 'done') {
     const { cookies, host, phase } = session;
-    delete sessions[req.query.t];
+    delete sessions[token];
     log('info', 'session.check.done', { token: `${token.slice(0, 8)}...`, host, phase, request_id: req.requestId });
     return res.json({ status: 'done', cookies, host, phase });
   }
@@ -260,20 +405,43 @@ app.get('/session/check', (req, res) => {
 
 app.post('/session/submit', submitAuthLimiter, async (req, res) => {
   const { token, login, password } = req.body;
+  const loginValue = String(login || '').trim();
+  const passwordValue = String(password || '');
+  const clientIp = getClientIp(req);
   metrics.sessionSubmitTotal += 1;
   log('info', 'auth.submit.received', {
     request_id: req.requestId,
     token: (token || '').toString().slice(0, 8) + '...',
-    login_present: Boolean(login),
-    password_present: Boolean(password),
+    login_present: Boolean(loginValue),
+    password_present: Boolean(passwordValue),
   });
-  if (!token || !login || !password) {
+  if (!token || !loginValue || !passwordValue) {
     log('warn', 'auth.submit.rejected', {
       request_id: req.requestId,
       reason: 'missing_fields',
       token: (token || '').toString().slice(0, 8) + '...',
     });
     return res.status(400).json(makeErrorPayload('login_failed', 'Не все поля заполнены'));
+  }
+  if (!isValidToken(token)) {
+    return res.status(400).json(makeErrorPayload('login_failed', 'Некорректный токен сессии'));
+  }
+  if (loginValue.length > 256 || passwordValue.length > 256) {
+    return res.status(400).json(makeErrorPayload('login_failed', 'Некорректная длина логина или пароля'));
+  }
+  if (hasUnsafeInputChars(loginValue)) {
+    return res.status(400).json(makeErrorPayload('login_failed', 'Логин содержит недопустимые символы'));
+  }
+  if (isLoginThrottled(clientIp, loginValue)) {
+    log('warn', 'auth.submit.rejected', {
+      request_id: req.requestId,
+      reason: 'ip_login_throttled',
+      token: token.slice(0, 8) + '...',
+      host: sessions[token]?.host || 'unknown',
+      ip: sanitizeLogValue(clientIp, 80),
+      login: maskLogin(loginValue),
+    });
+    return res.status(429).json(makeErrorPayload('login_failed', 'Слишком много попыток входа. Попробуйте позже.'));
   }
 
   const session = sessions[token];
@@ -338,9 +506,11 @@ app.post('/session/submit', submitAuthLimiter, async (req, res) => {
   const mirrors = uniqueMirrors(session.host);
   let lastErr = null;
   let authenticatedHost = session.host;
+  const deadlineAt = Date.now() + MAX_SUBMIT_FLOW_TIMEOUT_MS;
   try {
     let cookies = '';
     for (let i = 0; i < mirrors.length; i += 1) {
+      if (Date.now() >= deadlineAt) throw createAuthError('timeout', 'Submit flow timeout exceeded');
       const host = mirrors[i];
       updateSession(token, { status: 'pending', phase: 'login_get_page', error: null, host });
       log('info', 'auth.attempt.start', {
@@ -353,9 +523,9 @@ app.post('/session/submit', submitAuthLimiter, async (req, res) => {
       });
 
       try {
-        cookies = await loginToHDRezka(host, login, password, (phase) => {
+        cookies = await loginToHDRezka(host, loginValue, passwordValue, (phase) => {
           markPhase(phase, host);
-        });
+        }, deadlineAt);
         authenticatedHost = host;
         closePhase('login_get_page');
         closePhase('login_post_credentials');
@@ -387,11 +557,12 @@ app.post('/session/submit', submitAuthLimiter, async (req, res) => {
     if (!cookies) throw (lastErr || createAuthError('login_failed', 'No cookies after login'));
     metricsIncAuthResult(authenticatedHost, 'success');
     updateSession(token, { status: 'done', phase: 'done', cookies, error: null, host: authenticatedHost, inFlight: false });
+    clearLoginFailures(clientIp, loginValue);
     log('info', 'auth.success', {
       request_id: req.requestId,
       token: token.slice(0, 8) + '...',
       host: authenticatedHost,
-      login: maskLogin(login),
+      login: maskLogin(loginValue),
     });
     res.json({ success: true, host: authenticatedHost, phase: 'done' });
   } catch (err) {
@@ -399,10 +570,11 @@ app.post('/session/submit', submitAuthLimiter, async (req, res) => {
     const currentHost = sessions[token]?.host || session.host;
     updateSession(token, { status: 'error', error: code, phase: sessions[token]?.phase || 'unknown', inFlight: false, host: currentHost });
     metricsIncAuthResult(currentHost, code);
+    if (code === 'login_failed') recordLoginFailure(clientIp, loginValue);
     log('error', 'auth.error', {
       request_id: req.requestId,
       token: token.slice(0, 8) + '...',
-      login: maskLogin(login),
+      login: maskLogin(loginValue),
       host: currentHost,
       phase: sessions[token]?.phase || 'unknown',
       error_code: code,
@@ -414,8 +586,11 @@ app.post('/session/submit', submitAuthLimiter, async (req, res) => {
 });
 
 app.get('/auth', (req, res) => {
-  if (!req.query.t || !sessions[req.query.t])
+  if (!isValidToken(req.query.t) || !sessions[req.query.t])
     return res.status(400).send('QR-код истёк или недействителен. Обновите его на телевизоре.');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   res.sendFile(path.join(__dirname, 'public', 'auth.html'));
 });
 
@@ -555,12 +730,18 @@ function decodeResponseBody(buffer, contentEncoding, cb) {
   return cb(null, buffer.toString('utf8'));
 }
 
-async function loginToHDRezka(host, login, password, onPhase = () => {}) {
+function getRemainingTimeoutMs(deadlineAt) {
+  if (!deadlineAt) return AUTH_TIMEOUT_MS;
+  return Math.max(1, Math.min(AUTH_TIMEOUT_MS, deadlineAt - Date.now()));
+}
+
+async function loginToHDRezka(host, login, password, onPhase = () => {}, deadlineAt = 0) {
   onPhase('login_get_page');
   const getRes = await requestHtml(host, {
     path: '/',
     method: 'GET',
     headers: { 'User-Agent': 'Mozilla/5.0 (SmartTV; WebOS)' },
+    timeoutMs: getRemainingTimeoutMs(deadlineAt),
   });
 
   if (getRes.statusCode >= 500 || getRes.statusCode === 0) {
@@ -593,6 +774,7 @@ async function loginToHDRezka(host, login, password, onPhase = () => {}) {
       'X-Requested-With': 'XMLHttpRequest',
     },
     body: postData,
+    timeoutMs: getRemainingTimeoutMs(deadlineAt),
   });
 
   if (postRes.statusCode >= 500 || postRes.statusCode === 0) {
@@ -626,6 +808,7 @@ async function loginToHDRezka(host, login, password, onPhase = () => {}) {
       'User-Agent': 'Mozilla/5.0 (SmartTV; WebOS)',
       'Referer': `https://${host}/`,
     },
+    timeoutMs: getRemainingTimeoutMs(deadlineAt),
   });
 
   if (verifyRes.statusCode >= 500 || verifyRes.statusCode === 0) {
